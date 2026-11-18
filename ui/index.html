@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NodeCut</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/review.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="logo">
+        <img src="/icon.svg" alt="" width="26" height="26">
+        NodeCut
+      </div>
+      <button class="sidett" id="sideToggle" aria-label="Hide the menu" title="Hide the menu" aria-expanded="true">‹</button>
+      <nav class="nav">
+        <a href="#/" data-nav="projects" title="Home">Home</a>
+        <a href="#/renders" data-nav="renders" title="Renders">Renders <span class="count" id="renderCount" hidden></span></a>
+        <a href="#/settings" data-nav="settings" title="Settings">Settings</a>
+        <a href="#/disk" data-nav="disk" class="sub" title="Disk">Disk</a>
+      </nav>
+      <div class="live" id="live">…</div>
+    </aside>
+    <main class="main" id="main"></main>
+    <button class="sidett-float" id="sideReveal" aria-label="Show the menu" title="Show the menu" aria-expanded="false" hidden>›</button>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

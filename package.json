@@ -1,0 +1,44 @@
+{
+  "name": "nodecut",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local cross-platform review studio and protected render queue for videos written as code by Claude Code or OpenCode.",
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "video",
+    "motion-graphics",
+    "render-queue",
+    "canvas",
+    "puppeteer",
+    "ffmpeg",
+    "review",
+    "windows",
+    "linux",
+    "macos",
+    "opencode"
+  ],
+  "type": "module",
+  "main": "server/hub.js",
+  "os": [
+    "win32",
+    "linux",
+    "darwin"
+  ],
+  "scripts": {
+    "start": "node server/hub.js",
+    "mcp": "node server/mcp.js",
+    "test": "node scripts/test.mjs",
+    "check": "node --check server/hub.js && node --check server/mcp.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "puppeteer-core": "^25.17.0",
+    "zod": "^4.6.7"
+  }
+}

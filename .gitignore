@@ -1,0 +1,8 @@
+# machine-local, never shipped
+node_modules/
+data/
+.test-tmp/
+
+# a film's agent conversation is written into the FILM's folder, not the NodeCut folder; this is only here in case a run
+# is started from the repo root by mistake
+/AGENT.md
