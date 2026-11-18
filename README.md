@@ -22,7 +22,7 @@ so the difference between "looks generated" and "looks designed" is enforced rat
 > [docs/LOCAL-CHANGES.md](docs/LOCAL-CHANGES.md).
 
 > **Windows 10/11, Linux and macOS; Claude Code or OpenCode.** See [platform support](docs/PLATFORMS.md) for feature
-> limits and the remaining hardware checks.
+> limits and the remaining hardware checks. What is coming next is in **[ROADMAP.md](ROADMAP.md)**.
 
 ![Live preview with the tools dropdown](docs/screenshots/editor-tools-menu.png)
 
@@ -274,9 +274,14 @@ Run **UNINSTALL.cmd** (Windows) or `./uninstall.sh`. Your films are never delete
 - **A render is slow** — see [render speed](docs/RENDER-SPEED.md) and the Render power presets.
 
 ## Development
-`npm test` runs every suite (384 tests: 382 pass, 1 skipped, 1 known upstream failure). `npm start` runs the hub. The
+`npm test` runs every suite (387 tests: 385 pass, 1 skipped, 1 known upstream failure). `npm start` runs the hub. The
 architecture is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); every change this fork made is in
 [docs/LOCAL-CHANGES.md](docs/LOCAL-CHANGES.md).
+
+## Contributing
+Where NodeCut is heading is in **[ROADMAP.md](ROADMAP.md)**. How to set it up, run the tests and send a change is in
+**[CONTRIBUTING.md](CONTRIBUTING.md)**. Issues labelled `good first issue` are small and self-contained; `help wanted`
+means a second pair of hands decides whether it happens.
 
 ## Credits
 NodeCut is a fork of **[VideoHub](https://github.com/iamfabz/Videohub)**. The VideoHub authors wrote the foundation this
