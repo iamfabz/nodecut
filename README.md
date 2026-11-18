@@ -1,3 +1,5 @@
+![NodeCut](docs/screenshots/social-preview.png)
+
 # NodeCut
 
 **A local studio for videos that an AI agent writes as code — with craft notes that plan the film, a checker that
