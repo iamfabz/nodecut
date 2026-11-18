@@ -72,6 +72,9 @@ that one guarantee.
 **Review**
 - **Notes on frames** — click or draw on any frame (or pick a range) and say what is wrong. The agent gets the time,
   frame, chunk and a close-up of your drawing.
+
+![Writing a note on a frame](docs/screenshots/notes.png)
+
 - **Scene outline** — a grid of real thumbnails beside the picture, so you can jump to a scene instead of scrubbing. Each
   shot is captured at the scene's midpoint, where the picture is not black.
 - **Assets with previews** — every still and clip the models made, shown as itself: a still shows the image, a clip shows
@@ -85,8 +88,11 @@ that one guarantee.
 **Deliver**
 - **Render queue** — one render at a time, progress and ETA, size/fps/workers/encoder, a copy to any folder, a desktop
   notification when available.
-- **Three output qualities** — original, 1080p high quality (upscales a smaller film), or 720p okay. Each card carries an
-  estimate worked out from this film's last render, so the trade is visible before you press Render.
+- **Three output qualities** — original, 1080p high quality, or 720p okay. Each card carries an estimate worked out from
+  this film's last render, so the trade is visible before you press Render.
+
+![Three output qualities, each with its estimated time](docs/screenshots/render-quality.png)
+
 - **Partial re-render** — re-renders only the chunks your notes touched, joins the film again, and saves `film_vN.mp4`
   with the changed ranges. **Watch only the changes** plays just those.
 - **Render protection** — CPU affinity, niceness and RAM slow mode, so the computer stays usable.
@@ -153,8 +159,6 @@ Built into the Node server, with no compiled helper:
   processor fallback. See [render speed](docs/RENDER-SPEED.md).
 
 ![Renders](docs/screenshots/renders.png)
-
-![Render quality and its estimate](docs/screenshots/render-quality.png)
 
 ## Requirements
 All platforms need Node.js 22+, ffmpeg on PATH, a native Chrome/Chromium/Edge browser for headless rendering, and Claude
