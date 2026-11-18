@@ -1,0 +1,592 @@
+/* Self-hosted so the studio renders in these faces instantly, even offline.
+   Montserrat: brand, headings, buttons, anything that needs presence.
+   Open Sans: running text, labels, tables — the face that has to stay legible at 12px.
+   Both are latin variable subsets; --head and --font below are the only places they are named. */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/fonts/montserrat-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url('/fonts/OpenSans-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Open Sans';
+  font-style: italic;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url('/fonts/OpenSans-Italic-var.woff2') format('woff2');
+}
+
+:root {
+  /* ── NodeCut design tokens ────────────────────────────────────────────────────────────────────────────────────
+     The palette is four decisions, not forty: a near-black canvas, one raised surface, one hairline, and one
+     accent used sparingly. Depth comes from lightness steps and a 7% white hairline, never from drop shadows.
+     Every value below is a token; no rule anywhere else in the studio should name a colour directly. */
+
+  /* Canvas Base — the app wrapper and the deepest space behind everything. */
+  --canvas: #0a0a0c;
+  /* Surface Primary — cards, the side panel, the timeline dock. */
+  --surface: #131316;
+  /* Surface Border — ultra-thin structure: card edges, separators, grid lines. */
+  --surface-border: rgba(255,255,255,.07);
+  /* Text Main / Text Muted. The muted value has been lifted twice. It started at Zinc 500 (#71717a), which measured
+     4.09:1 and missed WCAG AA (4.5:1) against the canvas, then moved to #85858f. Glass panes then made the problem
+     worse in the other direction: a pane sits on a blurred backdrop that is lighter than the canvas, so the same grey
+     landing on a lifted panel dropped back to ~4.2:1 — under AA again, and worst on the settings panels where the
+     text is a full sentence rather than a label. #95959f clears 5.1:1 on the lightest measured pane while keeping
+     the same grey character. Do not darken this without re-measuring against a pane, not just the canvas. */
+  --text-main: #f4f4f5;
+  --text-muted: #95959f;
+  /* Accent Primary — sky. Active states, the playhead, live timeline tracks, buttons. */
+  --accent-primary: #38bdf8;
+  /* Accent Glow — focus rings, hovers, the soft light behind whatever is active. */
+  --accent-glow: rgba(56,189,248,.15);
+
+  /* Glass. The blur radius and saturation lift every pane shares, and the edge a pane is cut from: a touch of white,
+     brighter than the surface border, because a real glass edge catches light. */
+  --glass-blur: 12px;
+  --glass-sat: 1.7;
+  --glass-edge: rgba(255,255,255,.18);
+  --glass-fill: rgba(255,255,255,.045);      /* the pane's own body: barely anything, so the backdrop shows */
+  --glass-sheen: linear-gradient(135deg, rgba(255,255,255,.16) 0%, rgba(255,255,255,.05) 24%, transparent 48%);
+
+  /* ── the working names ────────────────────────────────────────────────────────────────────────────────────────
+     The studio is built on these short names (--bg, --card, --accent …), used ~500 times across css and canvas
+     code. They are aliases onto the tokens above, so re-theming stays a one-place change. Keep them. */
+  --bg: var(--canvas); --panel: var(--surface); --card: var(--surface); --card2: #18181c; --float: #1c1c21;
+  --row: #15151a; --sel: rgba(56,189,248,.14);
+  --border: var(--surface-border); --border2: rgba(255,255,255,.14); --track: #232329;
+  --line: var(--surface-border);          /* ultra-thin card border */
+  --edge: rgba(255,255,255,.10);          /* top-edge highlight on raised surfaces */
+  --text: var(--text-main); --muted: var(--text-muted); --dim: #8c8c96;
+  --accent: var(--accent-primary); --accent-bg: var(--accent-glow);
+  --accent-ink: #04222e;                  /* readable ink on top of a filled accent button */
+  /* status colours: these carry meaning (good / bad / warning / note) and stay distinct from the accent, which
+     marks "active". A red note dot must never read as a live control. */
+  --green: #46c480; --green-bg: rgba(70,196,128,.13);
+  --red: #e85454; --red-bg: rgba(232,84,84,.13);
+  --blue: var(--accent-primary); --blue-bg: var(--accent-glow);
+  --yellow: #e6c14d; --yellow-bg: rgba(230,193,77,.13);
+  --violet: #a68cff; --violet-bg: rgba(166,140,255,.13);
+  --r: 8px;
+  --head: "Montserrat", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;   /* headings, buttons, brand */
+  --font: "Open Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;    /* body, labels, tables */
+  /* Cascadia Mono is a Windows font. On macOS it is not installed, so every timecode, path and number in the studio
+     fell through to the browser's generic monospace — a slabby, dated face that made the timeline look like an old
+     editor. SF Mono is the system mono on macOS and is already there; ui-monospace reaches it without naming it.
+     Cascade to the Windows font after, so each platform gets its native mono. */
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;  /* timecodes, paths, numbers */
+  /* type scale: one place to change how big the studio reads */
+  --fs-xs: 11.5px; --fs-sm: 12.5px; --fs-md: 13.5px; --fs-lg: 15px; --fs-xl: 22px;
+  --lh: 1.55;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--canvas); }
+html, body { margin: 0; height: 100%; color: var(--text); font: var(--fs-md)/var(--lh) var(--font); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { background: transparent; }
+
+/* ── glass ────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Every surface in the studio is a sheet of glass over one ambient backdrop. Glass only reads as glass if there is
+   something behind it to be seen through, so the backdrop below sits at the very back at z-index -1, painted on the
+   body, and the panels frost it. The palette is untouched: these are the existing tokens, at low alpha, plus the
+   accent used as light. Nothing here introduces a new hue. */
+
+/* the ambient backdrop: four wide accent-lit pools and a faint grain, fixed so it does not scroll with the page.
+   Kept low-contrast on purpose — it exists to be seen THROUGH the glass, not to compete with it. */
+body::before {
+  content: ''; position: fixed; inset: -20%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(58% 62% at 14% 10%, rgba(56,189,248,.22), transparent 68%),
+    radial-gradient(52% 56% at 86% 16%, rgba(129,140,248,.18), transparent 70%),
+    radial-gradient(64% 60% at 70% 90%, rgba(56,189,248,.16), transparent 70%),
+    radial-gradient(50% 52% at 8% 86%, rgba(129,140,248,.14), transparent 72%),
+    /* a flat field under everything: faint, but it is what stops the centre of the window going to pure black
+       and leaving the panes with nothing to lift off */
+    linear-gradient(rgba(72,110,150,.10), rgba(40,52,72,.10)),
+    var(--canvas);
+}
+/* a whisper of grain keeps the blur from banding on large panels */
+body::after {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+
+/* headings and anything that is a button/label speak Montserrat; running text stays Open Sans */
+h1, h2, h3, .logo, button, select, .pill, .nav a, .card .t, .tl2-hname { font-family: var(--head); }
+h1, h2, h3, button { letter-spacing: -0.01em; }
+a { color: var(--blue); text-decoration: none; }
+button, select, input, textarea { font: inherit; color: var(--text); }
+/* Glass buttons: the same recipe as the stat cards — a translucent body, a backdrop blur, a crisp hairline, a
+   top-edge highlight and an ambient shadow. The shadow is what lifts them off the page; without it a blurred button
+   is just a slightly misted rectangle. Kept lighter than a card because a control is small and a heavy shadow at
+   that size reads as clutter. */
+button {
+  border-radius: var(--r); padding: 8px 14px; cursor: pointer; font-weight: 500; font-size: var(--fs-sm); line-height: 1.35;
+  background: rgba(255,255,255,.055);
+  border: 1px solid rgba(255,255,255,.10);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow:
+    0 2px 10px -2px rgba(0,0,0,.45),
+    inset 0 1px 0 rgba(255,255,255,.12);
+  transition: background .16s, border-color .16s, box-shadow .16s, transform .16s;
+}
+button:hover {
+  background: rgba(255,255,255,.10);
+  border-color: rgba(255,255,255,.22);
+  box-shadow:
+    0 4px 16px -2px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.20);
+}
+button:active { transform: translateY(1px); box-shadow: 0 1px 6px -2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.10); }
+/* The primary button is tinted glass, not a solid block. A fully opaque accent fill cannot show anything through
+   it, which is why the most important button on the page was the one thing that did not read as glass.
+   The fill is the accent at 30%, over the same backdrop blur as every other button, with a brighter edge than the
+   rest so it still carries the most weight on the row.
+   The label switches from dark ink to white: the old accent-ink (#04222e) was chosen against a solid #38bdf8 and
+   measures only 1.7:1 once the fill becomes translucent. White measures 8.6:1 at this alpha, and stays above 7.5:1
+   at any tint from 18% to 36%, so the tint can be tuned later without breaking it. */
+button.primary {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: #fff; font-weight: 600;
+  box-shadow: 0 2px 14px -3px rgba(56,189,248,.5), inset 0 1px 0 rgba(255,255,255,.30);
+}
+button.primary:hover {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+  box-shadow: 0 4px 20px -3px rgba(56,189,248,.62), inset 0 1px 0 rgba(255,255,255,.42);
+}
+button.danger { color: var(--red); }
+button.ghost { background: transparent; border-color: transparent; box-shadow: none; }
+button:disabled { opacity: .5; cursor: default; }
+select, input[type=text], input[type=search], input:not([type]), textarea {
+  padding: 8px 11px; outline: none; font-size: var(--fs-sm);
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: var(--r);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+}
+select { font-family: var(--font); }   /* dropdowns read as text, not as buttons */
+select:focus, input:focus, textarea:focus { border-color: var(--blue); }
+input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+::-webkit-scrollbar { width: 10px; height: 10px; } ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 6px; } ::-webkit-scrollbar-track { background: transparent; }
+
+.app { display: grid; grid-template-columns: 224px 1fr; height: 100vh; }
+/* The sidebar can collapse to nothing, and the page takes the freed width. One custom property drives both the
+   column and the pane's own width, so the two can never disagree mid-animation; the transition is on the grid
+   definition, which Chrome interpolates, so the content reflows smoothly rather than jumping at the end.
+   Collapsed the pane is fully hidden (not just narrow) and inert to clicks and focus. */
+.app { --side-w: 224px; grid-template-columns: var(--side-w) minmax(0, 1fr); transition: grid-template-columns .22s ease; }
+.app.side-hidden { --side-w: 0px; }
+.app.side-hidden > .side { visibility: hidden; pointer-events: none; }
+.side { width: var(--side-w); overflow: hidden; }
+/* The two sidebar toggles. One lives in the sidebar itself (always visible, top right of the logo row); the other
+   floats over the content and only appears once the sidebar is gone, because the in-sidebar one would have gone
+   with it. The float is positioned rather than placed in the grid, so it cannot take a column.
+   All of the .app placement rules live here together: a stray third child in a two-column grid would silently
+   create a row. */
+.app > .main { grid-column: 2; }
+.sidett-float {
+  position: fixed; left: 10px; top: 50%; transform: translateY(-50%); z-index: 40;
+  width: 22px; height: 40px; padding: 0; border-radius: 0 8px 8px 0; font-size: 15px; line-height: 1;
+  color: var(--muted); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.10);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  box-shadow: 0 2px 12px -2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.12);
+}
+.sidett-float:hover { color: var(--text); background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.20); }
+.sidett-float[hidden] { display: none; }
+.sidett {
+  position: absolute; top: 18px; right: 8px; width: 22px; height: 22px; padding: 0; border-radius: 6px;
+  font-size: 14px; line-height: 1; color: var(--muted); background: transparent; border: 1px solid transparent; box-shadow: none;
+}
+.sidett:hover { color: var(--text); background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.14); }
+/* the logo row needs room for the toggle */
+.side { position: relative; }
+.logo { padding-right: 26px; }
+.side {
+  display: flex; flex-direction: column; padding: 20px 12px; gap: 3px;
+  /* Clear glass, by request: no fill of its own, no edge, no shadow. The ambient backdrop behind the window is
+     what shows through, so the sidebar reads as a pane of glass laid over the app rather than a panel beside it.
+     Only the blur and a little saturation remain — those are what make it glass and not empty space.
+     There is deliberately NO mask here. The seam that used to run down x=224 was never the blur: it was the dark
+     fill on .main starting at that exact column. Fading the pane only smeared the boundary while leaving the step
+     in place. Fix the step, not the glass. */
+  background: transparent;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.25);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.25);
+  border-right: 0;
+  box-shadow: none;
+}
+.logo { display: flex; align-items: center; gap: 11px; padding: 2px 8px 22px; font-weight: 700; font-size: 17px; letter-spacing: -0.02em; }
+.logo img { width: 26px; height: 26px; display: block; }
+.nav a { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 9px 11px; border-radius: var(--r); font-size: var(--fs-sm); font-weight: 500; }
+.nav a:hover { background: rgba(255,255,255,.06); color: var(--text); }
+/* active state carried by the fill and glow alone: no border, since the sidebar itself has no edges either */
+.nav a.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 0 18px -6px var(--accent-glow);
+}
+.nav a { border: 0; }
+/* a sub-item: indented under the page it belongs to, quieter than a top-level link, and it keeps its own
+   highlight when open so the parent does not appear active at the same time */
+.nav a.sub { margin-left: 12px; padding: 6px 11px; font-size: 12.5px; font-weight: 400; color: var(--dim); }
+.nav a.sub:hover { color: var(--text); }
+.nav a.sub.on { color: var(--text); background: rgba(255,255,255,.055); box-shadow: none; }
+/* Settings while its Disk child is open: a quiet marker rather than a full active pill, so the two do not
+   compete for attention */
+.nav a.parent-on { color: var(--text); background: transparent; border: 0; box-shadow: none; }
+.nav .count { margin-left: auto; font-size: 11.5px; background: var(--accent-bg); color: var(--accent); border-radius: 10px; padding: 1px 8px; font-family: var(--font); }
+/* the live line (free RAM, render state) sits at the foot of the sidebar: margin-top:auto pushes it down
+   whatever the nav holds. No divider: the sidebar is clear glass with no edges, so separation comes from the
+   gap above the block instead of a line. */
+.side .live { margin-top: auto; padding: 18px 6px 4px; font-size: var(--fs-xs); color: var(--muted); display: grid; gap: 5px; line-height: 1.45; }
+/* one row per machine fact: a fixed-width key so the values line up in a column, and the value never wraps the
+   sidebar wider than the nav can afford */
+.side .mrow { display: flex; gap: 8px; min-width: 0; align-items: baseline; }
+.side .mk { flex: none; width: 26px; color: var(--dim); font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; }
+.side .mv { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.main { overflow: auto; }
+.page { padding: 28px 34px 70px; max-width: 1500px; }
+h1 { font-size: var(--fs-xl); font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em; }
+h2 { font-size: var(--fs-lg); font-weight: 600; margin: 30px 0 12px; color: var(--text); }
+.sub { color: var(--muted); font-size: var(--fs-sm); }
+.row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.spacer { flex: 1; }
+.tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 18px 0;
+  position: relative;
+}
+/* ── nodecut-glass-card ──────────────────────────────────────────────────────────────────────────────────────────
+   The high-end glass recipe, applied ONLY to the stat cards and data grids (the .tile figures and every table.t
+   block). Everything else in the studio keeps the softer pane treatment: a whole window of this is too much, but
+   the surfaces carrying numbers should catch light like real objects.
+
+   What sells it, in order of how much it does:
+     1. inset 0 1px 0 at 10% white — the top edge catching a light source. Without it this is a translucent box;
+        with it the card has thickness. This is the single most important line in the block.
+     2. a 65% surface fill, so the deep canvas bleeds through without the card losing its own colour,
+     3. backdrop blur, so anything scrolling underneath diffuses behind it,
+     4. the ambient shadow, which is what lifts it off the page rather than letting it sit flat on it. */
+.nodecut-glass-card {
+  background: rgba(19, 19, 22, .65);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, .08);
+  box-shadow:
+    0 4px 24px -1px rgba(0, 0, 0, .4),
+    inset 0 1px 0 0 rgba(255, 255, 255, .1);
+}
+.tile { border-radius: 12px; padding: 16px 18px; }
+.tile .k { font-size: 10.5px; color: var(--muted); font-weight: 600; letter-spacing: .09em; text-transform: uppercase; }
+.tile .v { font-family: var(--head); font-size: 30px; font-weight: 700; margin-top: 5px; letter-spacing: -0.03em; line-height: 1.1; }
+.tile .v small { font-size: var(--fs-sm); color: var(--muted); font-weight: 400; font-family: var(--font); letter-spacing: 0; }
+.tile.click { cursor: pointer; transition: border-color .15s, background .15s; }
+.tile.click { transition: border-color .15s, box-shadow .15s, transform .15s; }
+.tile.click:hover {
+  border-color: rgba(255,255,255,.16);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px -2px rgba(0,0,0,.5), inset 0 1px 0 0 rgba(255,255,255,.14);
+}
+
+/* ---- toolbar: title row with icon-only utilities (Refresh, Outputs) as one quiet group */
+.toolbar { margin-bottom: 4px; }
+/* The two icon buttons sit side by side in a small group. That group used to have a solid var(--panel) fill and a
+   border, which put an opaque dark box behind two otherwise glassy buttons — the one dark rectangle in the toolbar.
+   The group is now only a layout wrapper: no fill, no border. Each button brings its own glass, so the pair reads
+   as two panes rather than one black slab. */
+.icongroup { display: inline-flex; gap: 6px; padding: 0; border: 0; border-radius: 10px; background: transparent; }
+/* icon and segmented buttons reset the base button's background, so they need the glass put back explicitly.
+   Without this the toolbar buttons sat flat next to glass ones on the same row. */
+.iconbtn {
+  width: 32px; height: 30px; padding: 0; display: grid; place-items: center; font-size: 15px; line-height: 1; color: var(--muted); border-radius: 8px;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09);
+  box-shadow: 0 2px 10px -2px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12);
+}
+.iconbtn:hover { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.20); color: var(--text); box-shadow: 0 4px 16px -2px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.20); }
+
+/* ---- filter bar: one search field, a scrollable row of status pills, and a Filters popover */
+/* Search: the field lives in the toolbar and only takes up space while it is open. Collapsed it is zero-width and
+   invisible, so the row shows just the magnifying glass beside the other icon buttons; opening it grows the field
+   out to the left of the button. Only width and opacity animate, so the toolbar does not jump. */
+.toolbar-search-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.toolbar-search {
+  width: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; min-width: 0; box-sizing: border-box;
+  transition: width .18s ease, opacity .14s ease, padding .18s ease;
+}
+/* the base input rule adds its own padding and border; both are overridden so a collapsed field takes no room */
+body:not(.search-open) .toolbar-search { padding: 0; border-width: 0; }
+body.search-open .toolbar-search {
+  width: 210px; padding: 7px 11px; opacity: 1; pointer-events: auto;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 2px 10px -2px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12);
+}
+/* once open the glass button and the field read as one control, so the button loses its own fill */
+body.search-open .toolbar-search-wrap .iconbtn { background: transparent; border-color: transparent; box-shadow: none; }
+
+.filters { display: flex; gap: 9px; flex-wrap: wrap; margin: 8px 0 20px; align-items: center; }
+.filters input[type=search] { width: 260px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 18px; }
+.card { position: relative; border-radius: 14px; overflow: hidden; cursor: pointer; transition: border-color .18s, transform .18s, box-shadow .18s; display: flex; flex-direction: column; }
+.card:hover {
+  border-color: rgba(255,255,255,.26);
+  transform: translateY(-4px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.30),
+    inset 0 -1px 0 rgba(255,255,255,.07),
+    0 4px 8px -2px rgba(0,0,0,.55),
+    0 14px 24px -6px rgba(0,0,0,.6),
+    0 32px 60px -16px rgba(0,0,0,.7),
+    0 56px 100px -40px rgba(0,0,0,.8);
+}
+/* cinematic thumbnail: inset rounded art with a bottom scrim so the duration and notes float on the picture.
+   background-size is "contain": a 9:16 film must show whole (cover cut it to a band). */
+.thumb { aspect-ratio: 16/9; background: #08080b center/contain no-repeat; position: relative; margin: 8px 8px 0; border-radius: 9px; overflow: hidden; }
+.thumb.v { aspect-ratio: 16/9; background-size: contain; }
+.thumb::after { content: ''; position: absolute; inset: auto 0 0 0; height: 46%; background: linear-gradient(to top, rgba(6,6,9,.82), rgba(6,6,9,0)); pointer-events: none; }
+.thumb .dur { position: absolute; right: 8px; bottom: 8px; z-index: 1; background: rgba(0,0,0,.62); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.12); font-size: 11.5px; padding: 2px 7px; border-radius: 999px; font-family: var(--mono); letter-spacing: .02em; }
+/* the folder size sits at the far end of the same bottom row as the duration, so both read as one piece of
+   information: how big the film is, and how long it runs */
+.thumb .size { position: absolute; left: 8px; bottom: 8px; z-index: 1; background: rgba(0,0,0,.62); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.12); font-size: 11.5px; padding: 2px 7px; border-radius: 999px; font-family: var(--mono); letter-spacing: .02em; color: var(--muted); }
+.thumb .play { position: absolute; left: 50%; top: 46%; z-index: 1; transform: translate(-50%, -50%) scale(.9); width: 48px; height: 48px; border-radius: 50%; background: rgba(0,0,0,.5); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.18); display: grid; place-items: center; font-size: 17px; padding-left: 3px; opacity: 0; transition: opacity .18s, transform .18s; pointer-events: none; }
+.thumb.playable:hover .play { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.thumb.playable { cursor: pointer; }
+.thumb .noimg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 12px; }
+/* A card is a poster and one line: the name, then the two small actions. The old body stack (pills, sizes, ratios,
+   note counts, timestamps, footer links) is gone, so the body only has to lay out a single row that keeps the name
+   from pushing the buttons off the edge. */
+.card .body { padding: 11px 12px 11px 14px; }
+.cardline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.card .t { font-weight: 600; font-size: var(--fs-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+/* the two card actions are corner controls, not primary buttons: small, quiet, and only really visible on hover.
+   Without this they inherited the full glass button treatment and out-weighed the film title beside them. */
+.cardbtn {
+  flex: none; width: 26px; height: 24px; padding: 0; display: grid; place-items: center; font-size: 11.5px; line-height: 1;
+  border-radius: 7px; color: var(--muted); background: transparent; border: 1px solid transparent; box-shadow: none;
+}
+.cardbtn:hover { color: var(--text); background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.14); }
+/* status pills: translucent tint + a small glowing dot, generated in CSS so no markup changes are needed */
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 999px; background: var(--card2); color: var(--muted); white-space: nowrap; border: 1px solid var(--line); }
+.pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor; flex: none; opacity: .9; }
+/* a dot means "has a state"; these are labels, not states */
+.pill.fam::before, .pill.clip::before, .pill.web::before { display: none; }
+.pill.in-progress { background: var(--blue-bg); color: var(--blue); }
+.pill.review, .pill.open { background: var(--yellow-bg); color: var(--yellow); }
+.pill.revision, .pill.claude { background: var(--accent-bg); color: var(--accent); }
+.pill.approved, .pill.fixed { background: var(--green-bg); color: var(--green); }
+.pill.published { background: var(--violet-bg); color: var(--violet); }
+.pill.done, .pill.archived { background: var(--card2); color: var(--muted); }
+.pill.reopened { background: var(--red-bg); color: var(--red); }
+.pill.final { background: var(--green-bg); color: var(--green); }
+.pill.web { background: var(--violet-bg); color: var(--violet); }
+.pill.preview { background: var(--blue-bg); color: var(--blue); }
+.pill.silent { background: var(--red-bg); color: var(--red); }
+.pill.clip { background: var(--card2); color: var(--muted); }
+.pill.fam { background: transparent; border: 1px solid var(--border2); }
+/* disk split: a slim track pinned along the card's bottom edge, not a chunky block inside the body */
+.card:hover .bloat i { opacity: 1; }
+
+table.t { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+table.t th { text-align: left; color: var(--muted); font-weight: 600; font-size: var(--fs-xs); letter-spacing: .02em; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+table.t td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.t tr:hover td { background: var(--row); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); } .dim { color: var(--dim); } .red { color: var(--red); } .green { color: var(--green); } .accent { color: var(--accent); }
+.ellip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; display: inline-block; vertical-align: bottom; }
+
+.stack { height: 14px; display: flex; border-radius: 4px; overflow: hidden; background: var(--track); }
+.stack i { display: block; height: 100%; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend b { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+.panel { border-radius: 12px; padding: 14px 16px; }
+.rule { background: var(--card); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+.rule > header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; }
+.rule > header .size { margin-left: auto; font-variant-numeric: tabular-nums; }
+.rule .items { border-top: 1px solid var(--border); max-height: 360px; overflow: auto; }
+.rule .item { display: grid; grid-template-columns: 22px minmax(0, 1fr) 90px; gap: 10px; padding: 7px 14px; align-items: center; font-size: 13px; border-bottom: 1px solid var(--border); }
+.rule .item .why { color: var(--muted); font-size: 12px; }
+.stickybar { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--border); padding: 12px 28px; display: flex; gap: 12px; align-items: center; }
+
+.progress { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; min-width: 120px; }
+.progress i { display: block; height: 100%; background: var(--accent); }
+.progress.done i { background: var(--green); }
+
+.toast { position: fixed; right: 18px; bottom: 18px; display: grid; gap: 8px; z-index: 50; }
+.toast > div { background: var(--float); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 14px; max-width: 420px; box-shadow: inset 0 1px 0 var(--edge), 0 10px 30px -12px rgba(0,0,0,.85); }
+.toast .err { border-color: var(--red); }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 40; }
+.modal { background: var(--float); border: 1px solid var(--border2); border-radius: 14px; padding: 22px 24px; width: min(560px, 92vw); display: grid; gap: 12px; box-shadow: inset 0 1px 0 var(--edge), 0 24px 60px -20px rgba(0,0,0,.9); }
+/* New film: a name and a brief. Wider than a plain prompt because the brief deserves the room, and the two labels make
+   it obvious which box is which before anything is typed. */
+.modal.modal-brief { width: min(660px, 94vw); }
+.modal .field-label { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: -6px; }
+.modal.modal-brief textarea { font-family: var(--font); line-height: 1.55; min-height: 120px; }
+/* the brief, read-only, in the review modal */
+.brief-body { white-space: pre-wrap; font-size: var(--fs-sm); line-height: 1.6; color: var(--text); max-height: 50vh; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.brief-meta { font-size: var(--fs-xs); color: var(--muted); }
+.empty { color: var(--muted); padding: 30px; text-align: center; border-radius: 12px; }
+.kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; font-size: 13px; }
+.kv .k { color: var(--text-muted); }
+/* the value column is running text on a lit pane: full text colour, not the muted grey (which measured 4.14:1
+   against the glass and was the reason these lines could not be read) */
+.kv .v { color: var(--text-main); line-height: 1.5; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+@media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+.downbar { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 70; background: var(--red-bg); color: var(--text); border: 1px solid var(--red); border-radius: 10px; padding: 10px 16px; max-width: 640px; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+
+/* Render page: programs holding RAM */
+.panel.hogs { padding: 10px 14px; margin: 12px 0 4px; line-height: 1.6 }
+.panel.hogs .dim { font-size: 12px }
+
+/* cleaning progress / result (bottom right, stays until closed) */
+.cleanbox { position: fixed; right: 16px; bottom: 16px; width: min(440px, calc(100vw - 32px)); max-height: 60vh; overflow: auto; z-index: 50; background: var(--card); border: 1px solid var(--border2); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+.cleanbox .bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.cleanbox .bar i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.cleanbox .cleanres { display: grid; gap: 6px; max-height: 34vh; overflow: auto; font-size: 12.5px; }
+.cleanbox .cleanres .item { display: grid; gap: 2px; border-top: 1px solid var(--border); padding-top: 6px; }
+
+
+/* Card actions sit on the title line now, so they are always there rather than revealed on hover: with a single
+   row a hidden control would leave an empty gap and the row would jump when the mouse arrived. Their styling lives
+   with .cardbtn above; this note is here so the old hover-reveal rule is not reintroduced. */
+
+
+/* "Recent renders" (Nov 2) */
+.newpill { background: rgba(126,231,135,.18); color: #7ee787; border-radius: 9px; padding: 1px 7px; font-size: 11.5px; }
+table.outs tr.isnew td { background: rgba(126,231,135,.05); }
+.outpath { font-size: 11px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.nowrap { white-space: nowrap; }
+.stuckbox { margin-bottom: 8px; display: grid; gap: 6px; }
+.newline { margin: 6px 0 10px; padding: 8px 10px; }
+
+
+/* Recent renders: readable file actions at normal and narrow window sizes. */
+.recent-outputs { margin: 12px 0 22px; }
+.recent-heading { margin: 16px 0 10px; }
+.recent-heading h2 { margin: 0; }
+.output-list { display: grid; gap: 10px; margin: 10px 0; }
+.output-card { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.output-card.isnew { border-color: #355943; }
+.output-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--green-bg); color: var(--green); font-size: 16px; }
+.output-title { gap: 8px; }
+.output-title b { font-size: 15px; overflow-wrap: anywhere; }
+.output-title .pill { margin-left: auto; }
+.output-body { min-width: 0; }
+.output-filename { margin-top: 3px; color: var(--muted); overflow-wrap: anywhere; }
+.output-meta { display: flex; flex-wrap: wrap; gap: 5px 16px; font-size: 12px; color: var(--muted); margin: 6px 0; }
+.output-meta time { color: var(--text); }
+.output-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.output-actions button { min-height: 34px; font-size: 12.5px; }
+.output-filters { margin-top: 16px; }
+.output-filters input { flex: 1; max-width: 360px; min-width: 180px; }
+.output-card .outpath { max-width: 100%; }
+.render-finished { display: grid; gap: 8px; }
+.toast > div:has(.render-finished) { max-width: min(620px, calc(100vw - 36px)); }
+.compact .output-card { padding: 12px 16px; }
+@media (max-width: 850px) {
+  .app { grid-template-columns: 160px minmax(0, 1fr); }
+  .page { padding: 18px 16px 48px; }
+  .output-card { padding: 12px; gap: 10px; grid-template-columns: 30px minmax(0, 1fr); }
+  .output-icon { width: 30px; height: 30px; }
+  .output-actions .ghost { padding-left: 6px; padding-right: 6px; }
+}
+
+.card .cardfoot { flex-wrap: wrap; }
+.card .cardlink { font-size: 11.5px; padding: 4px 5px; }
+.release-chunks { margin: 10px 0; border: 1px solid var(--border2); }
+.release-chunks p { max-width: 720px; margin: 6px 0 10px; }
+.storage-help { border-left: 3px solid var(--accent); margin: 12px 0; }
+.storage-help p { margin: 6px 0; max-width: 850px; }
+
+.compact .output-list { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+.compact .output-card { grid-template-columns: minmax(0, 1fr); }
+.compact .output-icon { display: none; }
+.compact .output-title b { font-size: 14px; }
+.compact .output-title { align-items: start; }
+.compact .output-title .pill { margin-left: 0; }
+.compact .output-filename { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.cover-source { position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,.75); color: #ddd; border-radius: 5px; padding: 2px 6px; font-size: 11px; }
+
+.active-render-table { padding: 4px 6px; overflow-x: auto; }
+.render-start { font-size: 11.5px; margin-top: 3px; }
+.render-time { font-variant-numeric: tabular-nums; min-width: 110px; }
+.render-controls { white-space: normal !important; min-width: 170px; }
+.render-controls button { margin: 2px; padding: 5px 8px; font-size: 12px; }
+.current-render-settings { margin-bottom: 22px; }
+
+/* ── glass, authoritative ─────────────────────────────────────────────────────────────────────────────────────────
+   Deliberately last in the file. Every pane is defined here and nowhere else, so a rule above cannot quietly put a
+   solid fill back on a surface and kill the effect (which is exactly what happened while building this: .panel was
+   declared solid further down and won on source order).
+
+   Three things make it read as glass rather than as a slightly translucent box:
+     1. the body is nearly empty (5.5% white), so the backdrop's colour passes straight through,
+     2. a heavy blur with a saturation lift, so what passes through is soft but still coloured,
+     3. a bright 1px top edge plus a diagonal sheen, which is where the eye reads "thickness" and "hard surface".
+   Everything frosts the same backdrop, so the whole window reads as one sheet of glass in layers. */
+
+.glass, .panel, .card, .empty { position: relative; }
+.panel, .card, .empty, .glass {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) brightness(1.06);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) brightness(1.06);
+  border: 1px solid var(--glass-edge);
+  box-shadow:
+    /* the glass itself: a lit top rim and a shadowed underside, so the pane has thickness */
+    inset 0 1px 0 rgba(255,255,255,.26),
+    inset 0 -1px 0 rgba(255,255,255,.06),
+    /* elevation, built the way a real object casts light: a tight dark contact shadow right under the edge,
+       a mid falloff for the body of the shadow, then a wide soft ambient to lift it off the page */
+    0 2px 4px -1px rgba(0,0,0,.55),
+    0 8px 16px -4px rgba(0,0,0,.55),
+    0 20px 40px -12px rgba(0,0,0,.65),
+    0 36px 70px -30px rgba(0,0,0,.75);
+  transition: transform .2s cubic-bezier(.2,.8,.3,1), box-shadow .2s, border-color .2s;
+}
+/* the sheen: a raking highlight across the top-left corner, the tell of a polished surface */
+.panel::before, .card::before, .empty::before, .glass::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0;
+  background: var(--glass-sheen);
+}
+.panel > *, .card > *, .empty > *, .glass > * { position: relative; z-index: 1; }
+
+/* the main column scrolls over the backdrop: it gets no fill of its own, only a little inner light so content on it
+   stays legible where the backdrop is bright. The darkening RAMPS IN from the left instead of starting at the column
+   edge: a flat fill beginning at x=224 put a step of 3-6 levels between the sidebar and the content, which read as a
+   dividing line however clean the glass was. Starting at zero and reaching full darkness 140px in means the join has
+   nothing to see. */
+.main {
+  background: linear-gradient(to right, rgba(10,10,12,0) 0, rgba(10,10,12,.16) 140px, rgba(10,10,12,.26) 100%),
+              linear-gradient(180deg, rgba(10,10,12,0), rgba(10,10,12,.06));
+}
+
+/* ── nodecut-glass-card, re-asserted ──────────────────────────────────────────────────────────────────────────────
+   Same recipe as the block near .tile, repeated here because .panel and .card have their own glass rules further
+   up this file and would otherwise win on source order for the data grids. Scoped to the class, so it touches only
+   the stat cards and the table wrappers — not the sidebar, the cards on the Projects page, or the editor panes. */
+
+.nodecut-glass-card {
+  background: rgba(255, 255, 255, .022) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.05) !important;
+  backdrop-filter: blur(14px) saturate(1.05) !important;
+  border: 1px solid rgba(255, 255, 255, .10) !important;
+  box-shadow:
+    0 6px 28px -2px rgba(0, 0, 0, .55),
+    inset 0 1px 0 0 rgba(255, 255, 255, .13) !important;
+}
+/* the sheen belongs to the softer panes; on these it fights the crisp recipe above */
+.nodecut-glass-card::before { display: none !important; }

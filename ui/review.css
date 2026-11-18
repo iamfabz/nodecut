@@ -1,0 +1,694 @@
+.page.page-wide { max-width: none; padding: 14px 18px 30px; }
+/* P1 no-scroll editor: the page fills the window; the splitters size the dock (--dock-h) and side panel (--side-w) */
+.main.main-editor { overflow: hidden; }
+.page.page-editor { max-width: none; height: 100%; padding: 8px 10px; box-sizing: border-box; overflow: hidden; }
+.rv2 { height: 100%; display: grid; gap: 6px 8px; min-height: 0; position: relative;
+  grid-template-columns: var(--outline-w, 268px) minmax(0, 1fr) 6px var(--side-w, 340px);
+  grid-template-rows: auto minmax(0, 1fr) 6px var(--dock-h, 262px);
+  grid-template-areas: "top top top top" "outline stage xsplit side" "ysplit ysplit ysplit ysplit" "dock dock dock dock"; }
+/* The scene outline: a column between the tool rail and the preview. Collapsible, because on a narrow window the
+   preview matters more than the list; collapsed it takes no column at all (`--outline-w: 0`) and hides its content,
+   the same one-property trick the app sidebar uses so the grid and the pane can never disagree. */
+.rv2.no-outline { --outline-w: 0px; }
+.rv2-outline { grid-area: outline; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 34%, transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 10px 34px -18px rgba(0,0,0,.85); }
+.rv2.no-outline .rv2-outline { display: none; }
+/* The list itself is the same glass as the tool rail, so the two columns beside the preview read as one surface pair. */
+.ol-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 6px; font: 600 10.5px/1 var(--font);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted); flex: none; }
+.ol-head > b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ol-count { flex: none; font-family: var(--mono); font-size: 10px; letter-spacing: 0; padding: 1px 5px; border-radius: 999px;
+  background: rgba(255,255,255,.07); color: var(--muted); }
+/* One still per beat, two to a row. The pictures are the information here, so the tiles get the whole column: no
+   name line, no time line. Only the beat number sits over the picture, dim once it is not the current one. */
+.ol-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: grid;
+  grid-template-columns: 1fr 1fr; gap: 5px; padding: 0 6px 8px; align-content: start; }
+.ol-tile { display: block; width: 100%; padding: 0; border-radius: 7px; overflow: hidden; position: relative;
+  background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.08); box-shadow: none; cursor: pointer;
+  transition: border-color .14s, transform .14s, box-shadow .14s; }
+.ol-tile:hover { border-color: rgba(255,255,255,.28); transform: translateY(-1px); box-shadow: 0 4px 14px -6px rgba(0,0,0,.9); }
+.ol-tile.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, 0 4px 16px -6px var(--accent-glow); }
+.ol-art { display: block; position: relative; aspect-ratio: 16 / 9; overflow: hidden; }
+.ol-shot { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ol-num { position: absolute; left: 4px; top: 4px; min-width: 14px; height: 14px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 4px; font: 700 9.5px/14px var(--mono); text-align: center; color: #fff;
+  background: rgba(0,0,0,.62); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.ol-tile.on .ol-num { background: var(--accent); color: #0b0b0e; }
+.ol-wait { position: absolute; inset: 0; display: grid; place-items: center; }
+.ol-wait::after { content: ''; width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgba(255,255,255,.18);
+  border-top-color: rgba(255,255,255,.6); animation: olspin .8s linear infinite; }
+@keyframes olspin { to { transform: rotate(360deg); } }
+.ol-noimg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 15px; }
+.ol-empty { grid-column: 1 / -1; padding: 10px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+/* the Notes tab's own Add note, which moved here from the transport bar */
+.rv2-nhead .nadd { flex: none; padding: 3px 9px; font-size: 11.5px; line-height: 1.4; border-radius: 6px; }
+.rv2-top { grid-area: top; display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; overflow: hidden; min-width: 0; }   /* one row; fitRow hides by priority */
+.rv2-top > * { flex: none; }
+.rv2-top > .spacer { flex: 1 1 0; min-width: 0; }
+.rv2-top button { padding: 7px 11px; font-size: var(--fs-sm); }
+/* The file picker was capped at 240 px, which clipped "● Live preview (from code, no render)". The longest option
+   needs the room; the width is capped again below when the window is narrow, where fitRow folds it into ⋯ instead. */
+/* The back link says where it goes. It used to be "← " plus the film title, which made it read as a heading rather
+   than a button; the title now lives in the centre of the bar, so this is just the way out. */
+.rv2-top { gap: 12px; }   /* was 7px: Back, Tools and the picker sat shoulder to shoulder */
+.rv2-top .rv2-back { display: inline-flex; align-items: center; gap: 4px; padding: 6px 13px; border-radius: 9px; font: 600 var(--fs-sm)/1 var(--font);
+  background: var(--card); border: 1px solid var(--border2); color: var(--text); text-decoration: none; }
+.rv2-top .rv2-back:hover { background: var(--card2); border-color: var(--accent); color: var(--accent); }
+/* the film picker: a themed button + glass list, replacing the native <select> and its white OS popup */
+.rv2-top .rv2-pick { display: flex; align-items: center; gap: 7px; max-width: 340px; min-width: 0; padding: 6px 10px; text-align: left; }
+.rv2-top .rv2-pick .pk-ic { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.rv2-top .rv2-pick.is-live .pk-ic { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.rv2-top .rv2-pick .pk-lb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv2-picklayer { display: grid; gap: 6px; width: 100%; }
+.pk-search { width: 100%; min-width: 300px; box-sizing: border-box; font-family: var(--font); font-size: var(--fs-sm);
+  padding: 7px 9px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); color: var(--text); }
+.pk-search:focus { border-color: var(--accent); outline: none; }
+.pk-list { max-height: min(44vh, 320px); overflow: auto; display: grid; gap: 1px; align-content: start; min-width: 300px; }
+.pk-row { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; text-align: left; box-sizing: border-box;
+  background: transparent; border: 0; border-radius: 6px; padding: 0 8px; font-family: var(--font); font-size: var(--fs-sm);
+  color: var(--text); white-space: nowrap; overflow: hidden; box-shadow: none; }
+.pk-row .pk-rowic { flex: none; width: 10px; text-align: center; color: var(--dim); font-size: 9px; }
+.pk-row .pk-rowlb { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pk-row .pk-tick { flex: none; width: 12px; color: var(--accent); font-weight: 700; }
+.pk-row.hi { background: rgba(255,255,255,.08); }
+.pk-row.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.pk-row.on .pk-rowlb { color: var(--accent); }
+.pk-empty { padding: 10px 9px; font-size: var(--fs-sm); color: var(--muted); }
+.rv2-top .rv2-menu { font-size: 16px; line-height: 1; padding: 4px 8px; }
+/* the film's name, owning the middle of the bar. Absolutely positioned so it is centred on the bar itself and not on
+   the space left between two flex spacers (which only balances when both sides happen to be the same width). */
+.rv2-top .rv2-title { position: absolute; left: 50%; transform: translateX(-50%); max-width: min(38%, 420px);
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  text-align: center; font: 600 13.5px/1.2 var(--font); color: var(--text);
+  overflow: hidden; padding: 0 10px; pointer-events: auto; }
+.rv2-top .rv2-title .rv2-tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv2-top .rv2-titledot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); flex: none; }
+/* Tools ▾: the tool rail, collapsed into the head of the bar */
+.rv2-top .rv2-toolsbtn { display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-weight: 600; }
+.rv2-top .rv2-toolsicon { display: grid; place-items: center; width: 16px; height: 16px; color: var(--accent); }
+.rv2-top .rv2-caret { font-size: 8px; color: var(--dim); margin-left: 1px; }
+.fit-hide { display: none !important; }
+/* permanently in the ⋯ menu: not hidden because the row is narrow, hidden because they do not belong on it */
+.fit-always { display: none !important; }
+.segs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.segs .seg { border: 0; border-radius: 0; padding: 7px 12px; background: var(--card); }
+.segs .seg.on { background: var(--accent-bg); color: var(--accent); }
+#toast { z-index: 60; }
+
+.rv2-tools { grid-area: tools; display: flex; flex-direction: column; align-items: center; gap: 1px; border-radius: 10px; padding: 4px 3px; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  background: color-mix(in srgb, var(--surface) 34%, transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 10px 34px -18px rgba(0,0,0,.85); }
+.rv2-tools .tb, .rv2-stylepop .tb { width: 34px; height: 28px; flex: none; padding: 0; display: grid; place-items: center; background: transparent; border-color: transparent; color: var(--muted); }
+.rv2-tools .tb:hover, .rv2-stylepop .tb:hover { background: var(--card2); color: var(--text); }
+.rv2-tools .tb.on, .rv2-stylepop .tb.on { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.rv2-stylepop .sw { width: 22px; height: 22px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
+.rv2-stylepop .sw.on { border-color: var(--text); }
+.rv2-stylepop .wb i { display: block; width: 20px; background: currentColor; border-radius: 2px; }
+/* a short rail (view near its 180 px minimum) squeezes the buttons before it falls back to scrolling */
+.rv2-tools .tb { flex: 0 1 28px; min-height: 22px; }
+.rv2-tools .tb.tb-style { flex: none; }
+.rv2-tools .tsep { width: 26px; height: 1px; flex: none; background: var(--border); margin: 3px 0; }
+.rv2-tools .tb-style { display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center; }
+.rv2-tools .tb-style .sdot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); }
+.rv2-tools .tb-style .sbar { display: block; width: 18px; background: currentColor; border-radius: 2px; }
+/* popovers (colour/width, the top bar's ⋯): fixed, so no overflow:hidden parent cuts them */
+.rv2-pop { position: fixed; z-index: 75; border-radius: 10px; padding: 6px; max-height: 70vh; overflow: auto;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7);
+  backdrop-filter: blur(30px) saturate(1.7);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 20px 50px -20px rgba(0,0,0,.9); }
+.rv2-stylepop { display: grid; gap: 6px; }
+.rv2-poprow { display: flex; gap: 5px; align-items: center; }
+.rv2-morelist { display: grid; gap: 2px; min-width: 180px; }
+.rv2-morelist > button { text-align: left; white-space: nowrap; }
+.rv2-morelist > select { max-width: 320px; margin: 2px 0; }
+
+/* flex, not grid: hidden tipBar/tourBar would shift grid auto-placement and give the view a 0 px row */
+.rv2-center { grid-area: stage; display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; align-items: center; }
+/* The preview window is 16:9 and no wider, because 16:9 is the widest a film can be: a landscape film fills it, a
+   portrait film letterboxes inside it, and nothing is ever cut. Before this it stretched to fill the whole column
+   (measured 772×314, 2.46:1), which meant a wide empty letterbox around every clip and wasted width that the side
+   panel needed. Height is the constraint: `aspect-ratio` with `height: 100%` makes the box as tall as the stage and
+   only as wide as 16:9 allows, and `max-width: 100%` takes over on short, narrow windows (where width runs out first).
+   flex-basis 0 + min-height 0 keeps the existing flex sizing honest. */
+.rv2-center > .rv2-view { flex: 1 1 0; min-height: 0; aspect-ratio: 16 / 9; height: 100%; width: auto; max-width: 100%; margin: 0 auto; }
+.rv2-center > :not(.rv2-view) { flex: none; }
+/* The transport row used to be `flex: none`, so it sized to its content — measured 1480 px inside a 692 px column.
+   It overflowed the stage and, because the preview is sized from the column, it was also the reason the preview
+   could not use the full height. It now shrinks to the column and folds its own buttons via fitRow. */
+.rv2-center > .rv2-transport { flex: 0 1 auto; width: 100%; max-width: 100%; }
+/* Fullscreen paints only the fullscreen element's own subtree, so the ambient backdrop on body::before is not drawn
+   and everything behind the glass fell to flat black: the panes kept their translucency but had nothing to be
+   translucent over, which is why the whole editor looked like a different, darker app in fullscreen. The backdrop is
+   repeated here, at the same alphas and colours, so the theme is continuous. `background-attachment: fixed` keeps
+   the pools still instead of sliding with the element. */
+.rv2:fullscreen {
+  padding: 8px; background: var(--canvas); isolation: isolate;
+}
+.rv2:fullscreen::before {
+  content: ''; position: absolute; inset: -20%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(58% 62% at 14% 10%, rgba(56,189,248,.22), transparent 68%),
+    radial-gradient(52% 56% at 86% 16%, rgba(129,140,248,.18), transparent 70%),
+    radial-gradient(64% 60% at 70% 90%, rgba(56,189,248,.16), transparent 70%),
+    radial-gradient(50% 52% at 8% 86%, rgba(129,140,248,.14), transparent 72%),
+    linear-gradient(rgba(72,110,150,.10), rgba(40,52,72,.10)),
+    var(--canvas);
+}
+.rv2-zoomctl { position: absolute; right: 8px; bottom: 8px; z-index: 7; display: flex; align-items: center; gap: 1px; background: rgba(15,16,20,.78); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+.rv2-zoomctl button { width: 26px; height: 24px; padding: 0; display: grid; place-items: center; color: var(--muted); }
+.rv2-zoomctl button:hover { color: var(--text); }
+.rv2-zoomctl .zpct { font: 11px var(--mono); color: var(--accent); padding: 0 4px; }
+
+/* side panel (tabs) and the dock */
+.rv2-side { grid-area: side; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; border-radius: 10px; overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 34%, transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 10px 34px -18px rgba(0,0,0,.85); }
+.rv2-tabs { display: flex; gap: 2px; padding: 4px 4px 0; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+/* crowded strip: tabs shrink (label ellipsis, full name in title); below their minimum the strip scrolls (wheel + active tab kept in view) */
+.rv2-tab { flex: 0 1 auto; min-width: 42px; overflow: hidden; white-space: nowrap; }
+.rv2-tab.rv2-tab-x { flex-shrink: 6; min-width: 36px; }   /* editor tabs give way first, down to their emoji */
+/* the strip is narrow, so tabs shrink; the label itself must never shrink below its text,
+   or a one-pixel squeeze turns "Notes" into "Not...". It only ellipsises when the label is
+   wider than the tab (a long name), which is the case the ellipsis is there for. */
+.rv2-tab > .rv2-tlab { min-width: max-content; overflow: hidden; text-overflow: ellipsis; }
+.rv2-tab > .rv2-badge { flex: none; }
+.rv2-tab { border: 0; border-radius: 7px 7px 0 0; background: transparent; color: var(--muted); padding: 8px 9px; font-size: var(--fs-sm); font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
+.rv2-tab:hover { background: var(--card2); color: var(--text); }
+.rv2-tab.on { background: var(--bg); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.rv2-badge { font-size: 10.5px; background: var(--yellow-bg); color: var(--yellow); border-radius: 8px; padding: 0 6px; line-height: 16px; }
+.rv2-tabbody { min-height: 0; overflow: hidden; background: var(--bg); }
+.rv2-pane { height: 100%; min-height: 0; display: none; flex-direction: column; overflow: auto; padding: 8px; box-sizing: border-box; }
+.rv2-pane.on { display: flex; }
+.rv2-pane[data-id=notes] { overflow: hidden; }   /* .rv2-list scrolls inside */
+.rv2-sidefoot { padding: 6px 8px; border-top: 1px solid var(--border); }
+.rv2-dock { grid-area: dock; min-height: 0; overflow: hidden; }
+.rv2-split { touch-action: none; user-select: none; }
+.rv2-split[data-axis=y] { grid-area: ysplit; cursor: row-resize; }
+.rv2-split[data-axis=x] { grid-area: xsplit; cursor: col-resize; }
+.rv2-split:hover, .rv2-split.drag { background: rgba(37, 208, 194, .4); border-radius: 3px; }
+.rv2-side .sedit-panel, .rv2-side .e2d-panel, .rv2-side .ascan-panel { position: static; inset: auto; left: auto; right: auto; top: auto; width: auto; max-width: none; max-height: none; transform: none; box-shadow: none; overflow: visible; }
+.rv2.rv2-narrow { --side-w: 280px; }   /* fallback; the side splitter's max does the same (its inline value wins) */
+/* The outline is a grid of pictures, so its width trades directly against the preview's. Measured at each size: at
+   1400 px a 200 px outline leaves the preview 484x289 = 1.67, which is letterboxed, so the outline narrows again
+   there. The numbers are chosen so the preview reaches 16:9 before the column gets more room, not after. */
+@media (max-width: 1600px) { .rv2 { --outline-w: 196px; } }
+@media (max-width: 1460px) { .rv2 { --outline-w: 170px; } }
+@media (max-width: 1380px) { .rv2 { --outline-w: 150px; } }
+/* On a narrow window the preview is what matters, so the outline gives up its column rather than squeezing the film. */
+.rv2.rv2-narrow:not(.outline-open) { --outline-w: 0px; }
+.rv2.rv2-narrow:not(.outline-open) .rv2-outline { display: none; }
+
+/* hub sidebar in the live/editor view: it stays whole. It used to shrink to a 48 px icon strip (with ☰ as an overlay),
+   but a viewer who jumps to the projects list between notes should not have to relearn the nav, so the editor keeps the
+   same sidebar as every other page — only its right border goes, because the editor paints its own dark surface right up
+   against it. */
+.app.app-editor > .main { min-width: 0; }
+
+.rv2-view { position: relative; overflow: hidden; background: #0a0a0c; border-radius: 10px; }
+.zoombox { position: absolute; transform-origin: 0 0; display: flex; gap: 8px; }
+.frame { position: relative; background: #000; flex: none; }
+.frame video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.frame video.vb { pointer-events: none; }
+.frame canvas.diff { position: absolute; inset: 0; width: 100%; height: 100%; filter: brightness(4) contrast(1.4); pointer-events: none; }
+.frame canvas.ov { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.frame .wipe { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid #fff; cursor: ew-resize; z-index: 3; }
+.frame .wipe span { position: absolute; top: 50%; left: -14px; width: 26px; height: 26px; margin-top: -13px; border-radius: 50%; background: #fff; color: #111; display: grid; place-items: center; font-size: 13px; }
+.frame .wipe::before { content: ''; position: absolute; top: 0; bottom: 0; left: -10px; width: 20px; }
+.frame .tag { position: absolute; left: 8px; top: 8px; background: rgba(0,0,0,.7); font-size: 12px; padding: 2px 8px; border-radius: 6px; pointer-events: none; z-index: 2; }
+.frame .tag.tagb { left: auto; right: 8px; }
+.textin { position: absolute; z-index: 5; background: rgba(0,0,0,.8); border: 1px solid var(--accent); font-weight: 600; min-width: 180px; }
+.quick { position: absolute; z-index: 6; width: 270px; background: rgba(23,24,29,.96); border: 1px solid var(--accent); border-radius: 10px; padding: 8px; display: grid; gap: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.5); }
+.quick .qh { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.quick textarea { width: 100%; min-height: 52px; resize: vertical; }
+.quick .qf { font-size: 11px; color: var(--dim); }
+.rv2-tip { display: flex; align-items: center; gap: 10px; background: var(--blue-bg); color: var(--text); border-radius: 8px; padding: 6px 10px; font-size: var(--fs-sm); }
+.rv2-tip button { margin-left: auto; }
+
+/* P2 transport: one row, never wraps; fitRow moves the least important items into ⋯ (data-pri) */
+/* The transport sits directly on the page: no glass sheet, no border, no shadow. It was a frosted panel like the tool
+   bar, which put a visible rectangle around a row of plain controls and read as a separate window under the film. The
+   controls are the interface; there is nothing for them to be a panel of. */
+.rv2-transport { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; height: 38px; box-sizing: border-box; overflow: hidden; min-width: 0; padding: 3px 8px;
+  background: transparent; border: 0; box-shadow: none; }
+.rv2-transport > * { flex: none; white-space: nowrap; }
+.rv2-transport > .spacer { flex: 1 1 0; min-width: 0; }
+.rv2-transport button { white-space: nowrap; }
+.rv2-transport .tbtn { min-width: 32px; height: 30px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+.rv2-transport .play { width: 46px; height: 30px; border-radius: 15px; background: var(--text); color: #111; font-weight: 700; border: 0; padding: 0; }
+.rv2-transport .tc { font-family: var(--mono); font-size: 12.5px; height: 30px; text-align: left; background: var(--bg); padding: 2px 9px; }
+.rv2-transport .tp-tcin { width: 230px; height: 30px; box-sizing: border-box; font-family: var(--mono); font-size: 12.5px; padding: 2px 9px; }
+.rv2-transport .tp-tcin.bad { border-color: var(--red); background: var(--red-bg); }
+.rv2-transport button.on { background: var(--yellow-bg); color: var(--yellow); border-color: var(--yellow); }
+.rv2-transport .vol { width: 80px; height: 22px; accent-color: var(--text); cursor: pointer; }
+.rv2-transport select { padding: 3px 6px; height: 28px; }
+.rv2-transport .tp-shuttle { font: 600 12px var(--mono); color: var(--accent); background: var(--accent-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 7px; }
+.rv2-transport .tp-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.rv2-transport .tp-zoom .tbtn { min-width: 26px; padding: 2px 6px; }
+.rv2-transport .tl2-zoom { width: 90px; height: 22px; accent-color: var(--accent); cursor: pointer; }
+.rv2-transport .tp-pin { opacity: .45; }
+.rv2-transport .tp-pin.on { opacity: 1; }
+.rv2-transport .rinfo, .rv2-transport .redit .tbtn { height: 28px; padding: 2px 8px; }
+.rv2-transport .fin { height: 26px; box-sizing: border-box; }
+.rv2-pop .redit { display: inline-flex; }
+.rv2-morelist > input[type=range] { width: 160px; margin: 4px 6px; }
+
+/* multi-track timeline (P3a): ruler row, scrolling rows (DOM headers | canvas), overview bar */
+/* ── Timeline ──────────────────────────────────────────────────────────────────────────────────────────────────────
+   Rebuilt onto the same glass language as the rest of the studio. The old version used hard-coded near-black fills
+   (#16171c, #121318, #0d0e12) and muddy highlight colours that belonged to no other surface in the app, which is why
+   it read as a separate, older program bolted to the bottom of the screen.
+   Now: a translucent pane over the ambient backdrop, token colours, hairline separators instead of black borders,
+   and the same top-edge highlight the panes have. The lane bodies stay readable — glass here is fill and edge, not
+   extra blur, because a blurred track behind moving clips would fight them. */
+/* The label column has to hold a row name AND its mute / solo / level chip on one line. At 128 px that left about
+   18 px for the name once the chips grew with the rows, so "Added music" clipped to "Added mu…". The widest row
+   ("Added music", 81 px) plus a full chip set (M + S + 100%, 110 px) plus the row's own padding needs ~196 px. */
+.tl2-wrap { --tl-head-w: 196px; position: relative; display: grid; height: 100%; min-height: 0; grid-template-rows: 26px minmax(0, 1fr) 12px;
+  background: rgba(255,255,255,.028);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,.08); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 4px 24px -6px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.09); }
+.tl2-rulerrow, .tl2-ov { display: grid; grid-template-columns: var(--tl-head-w) minmax(0, 1fr); padding-right: var(--tl-gut, 0px); min-width: 0; }
+.tl2-rulerrow { background: rgba(255,255,255,.022); }
+.tl2-corner { display: flex; align-items: center; padding: 0 8px; font: 600 10.5px/1 var(--font); letter-spacing: .05em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  border-right: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.02); user-select: none; }
+.tl2-corner:hover { color: var(--text); }
+.tl2-cstat { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+.tl2-cstat button { padding: 1px 6px; font-size: 10.5px; line-height: 16px; white-space: nowrap; }
+.rv2-astat { display: inline-flex; align-items: center; gap: 6px; }
+.rv2-astat:empty { display: none; }
+.tl2-ruler { display: block; width: 100%; height: 24px; cursor: ew-resize; }
+.tl2-body { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+.tl2-inner { display: grid; grid-template-columns: var(--tl-head-w) minmax(0, 1fr); align-items: start; }
+.tl2-heads { background: rgba(255,255,255,.022); border-right: 1px solid rgba(255,255,255,.07); min-width: 0; }
+.tl2-head { position: relative; display: flex; align-items: center; gap: 4px; padding: 0 6px 0 10px; overflow: hidden; border-bottom: 1px solid rgba(255,255,255,.055); }
+.tl2-head::before { content: ''; position: absolute; left: 3px; top: 3px; bottom: 3px; width: 3px; border-radius: 2px; background: var(--c, #666); }
+.tl2-head.small::before { top: 2px; bottom: 2px; }
+.tl2-hname { min-width: 0; font: 600 11px/1.2 var(--font); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; user-select: none; }
+.tl2-hname:hover { color: var(--text); }
+.tl2-hadd { margin-left: auto; flex: none; width: 23px; height: 21px; padding: 0; border-radius: 5px; font-size: 11px; line-height: 1; background: transparent; border: 1px solid var(--border); }
+.tl2-hadd:hover { background: rgba(255,255,255,.08); }
+/* P3c: header M / S / level chip (mixer.js), the Channels section in Sounds */
+.tl2-wrap.tl2-mx { --tl-head-w: 196px; }
+.tl2-hside { margin-left: auto; flex: none; display: flex; align-items: center; gap: 3px; }
+.tl2-hside .tl2-hadd { margin-left: 0; }
+.tl2-hctl { display: flex; align-items: center; gap: 3px; flex: none; }
+.tl2-ms { width: 23px; height: 23px; padding: 0; border-radius: 6px; font: 700 10.5px/1 var(--font); color: var(--muted); background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09); }
+.tl2-ms:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.18); }
+.tl2-ms.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 0 12px -4px var(--accent-glow); }
+.tl2-ms.off { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 16%, transparent); border-color: color-mix(in srgb, var(--yellow) 45%, transparent); }
+.tl2-ms:disabled { opacity: .35; cursor: not-allowed; }
+.tl2-lvl { display: inline-block; min-width: 38px; height: 21px; padding: 0 4px; box-sizing: border-box; border-radius: 6px; border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.045); font: 600 10.5px/19px var(--font); font-variant-numeric: tabular-nums; text-align: center; color: var(--muted); cursor: ew-resize; user-select: none; touch-action: none; }
+.tl2-lvl:hover, .tl2-lvl.drag { color: var(--text); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: rgba(255,255,255,.09); }
+.tl2-lvl.chg { color: var(--accent); }
+.tl2-lvl.dis { opacity: .35; cursor: not-allowed; border-color: var(--border); color: var(--muted); }
+.mx { display: grid; gap: 6px; font-size: 12px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+.mx-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mx-title { cursor: help; }
+.mx-ab .seg { padding: 1px 7px; font-size: 11px; }
+.mx-ab .seg.pin { box-shadow: inset 0 0 0 1px var(--accent); }
+.mx-pill { font-size: 11px; padding: 3px 7px; border-radius: 6px; background: #39301a; color: #f0c860; }
+.mx-rows { display: grid; gap: 3px; }
+.mx-row { display: flex; align-items: center; gap: 6px; min-height: 25px; }
+.mx-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.mx-acts { gap: 6px 8px; }
+.mx-acts select { max-width: 100%; }
+.tl2-cnote { font-size: 10.5px; color: #f0c860; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl2-head.coll .tl2-hname { font-size: 9.5px; line-height: 1; color: var(--dim); }
+.tl2-head.off .tl2-hname { color: var(--dim); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
+.tl2 { display: block; width: 100%; cursor: pointer; }
+.tl2-ov { background: #101116; }
+.tl2-ovcorner { background: rgba(255,255,255,.03); border-right: 1px solid var(--glass-edge); }
+.tl2-ovtrack { position: relative; overflow: hidden; cursor: pointer; user-select: none; touch-action: none; }
+.tl2-ovwin { position: absolute; top: 1px; bottom: 1px; min-width: 8px; box-sizing: border-box; background: rgba(96,156,255,.2); border: 1px solid rgba(96,156,255,.65); border-radius: 3px; }
+.tl2-ovlab { position: absolute; inset: 0; z-index: 1; font: 9px/12px var(--font); color: var(--muted); text-align: center; white-space: nowrap; pointer-events: none; }
+.tl2-ovhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; z-index: 2; }
+.tl2-tip { position: fixed; bottom: auto; width: 170px; background: var(--card2); border: 1px solid var(--border2); border-radius: 8px; padding: 5px; font-size: 11.5px; pointer-events: none; z-index: 70; }
+.tl2-tip canvas { display: block; width: 160px; border-radius: 4px; margin-bottom: 4px; }
+
+.rv2-notes { display: flex; flex-direction: column; gap: 8px; position: static; max-height: none; height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; }   /* scrolls itself only when the composer leaves the list < 60 px */
+.rv2-notes > * { flex: none; }
+.rv2-notes > .rv2-list { flex: 1 1 0; min-height: 60px; }
+.rv2-nhead { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rv2-pane .rv2-nhead > b { display: none; }   /* the tab already says "Notes"; keeps the head one row at 260 px */
+.rv2-nhead .tourbtn { white-space: nowrap; flex: none; }
+.rv2-nhead select { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.rv2-list { display: grid; gap: 8px; overflow: auto; align-content: start; min-height: 60px; }
+.rv2-nfoot button { width: 100%; }
+.rv2-composer { border: 1px solid var(--accent); border-radius: 10px; padding: 10px; display: grid; gap: 8px;
+  background: color-mix(in srgb, var(--surface) 40%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 0 24px -8px var(--accent-glow); }
+.rv2-composer textarea { width: 100%; min-height: 70px; resize: vertical; }
+.rv2-drafts { display: grid; gap: 4px; max-height: 150px; overflow: auto; padding: 8px; background: var(--yellow-bg); border-radius: var(--r); font-size: 12px; }
+.rv2-drafts > button { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv2-chead { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-size: 12.5px; padding: 3px 10px; border-radius: 14px; background: var(--card2); border: 1px solid var(--border); cursor: pointer; }
+.chip.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+/* off-screen cards skip layout and paint; the list is its own layout island */
+.rv2-list { contain: layout paint; }
+/* no content-visibility here: a card kept its remembered height when its lazy picture loaded and overlapped the next one (Oct 27) */
+.nc { border-radius: 9px; padding: 12px 13px; display: grid; gap: 8px; cursor: pointer;
+  background: rgba(255,255,255,.045);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+.nc:hover { border-color: var(--border2); }
+.nc.sel { border-color: var(--blue); }
+.nc .hd { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted); }
+.nc .tx { font-size: var(--fs-md); line-height: 1.55; }
+.nc img { width: 100%; border-radius: 6px; display: block; }
+/* a note's frame picture: folded to a strip, opened on click (Oct 28) */
+.nc .nimg { position: relative; max-height: 34px; overflow: hidden; border-radius: 6px; border: 1px solid var(--border); }
+.nc .nimg img { filter: brightness(.55); }
+.nc .nimg .nimg-lab { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 11.5px; color: #fff; text-shadow: 0 1px 2px #000; pointer-events: none; }
+.nc .nimg.open { max-height: none; }
+.nc .nimg.open img { filter: none; }
+.nc .nimg.open .nimg-lab { display: none; }
+.nc textarea { width: 100%; min-height: 60px; }
+.nc .reply { font-size: 12.5px; background: var(--card2); border-radius: 6px; padding: 6px 8px; }
+.nc .reply b { color: var(--accent); font-weight: 600; }
+.nc .acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.nc .acts button { padding: 5px 11px; font-size: var(--fs-sm); }
+.rv2-help { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; }
+.rv2-help .panel { width: min(640px, 92vw); max-height: 85vh; overflow: auto; }
+.rv2-help .kv { grid-template-columns: 190px 1fr; }
+
+/* range (I/O): transport group, frame fields, note lines */
+.rgroup { display: inline-flex; align-items: center; gap: 4px; }
+.rinfo { font-family: var(--mono); font-size: 12.5px; background: var(--bg); color: var(--muted); padding: 5px 8px; }
+.rinfo.on { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-bg); }
+.redit { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.fin { width: 74px; font-family: var(--mono); padding: 4px 6px !important; }
+.rnote { color: var(--yellow); }
+.rbox { display: grid; gap: 6px; background: var(--card2); border-radius: 8px; padding: 6px 8px; }
+.rrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.nc .rline { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--yellow); font-family: var(--mono); }
+.nc .rline button { padding: 1px 8px; font-size: 12px; margin-left: auto; }
+.rv2-transport .kf { color: var(--yellow); }
+
+/* live preview: the film page itself, scaled into the frame; clicks go to the drawing layer above */
+.livebox { position: absolute; inset: 0; overflow: hidden; background: #000; }
+.livebox iframe.live { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: #000; }
+
+/* narration captions, check tour */
+.capbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: 86%; z-index: 4; background: rgba(0,0,0,.72); color: #fff; font-size: 17px; line-height: 1.35; padding: 6px 14px; border-radius: 8px; text-align: center; pointer-events: none; }
+.rv2-transport button.tbtn.on { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
+.frame .beforeimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; z-index: 1; pointer-events: none; }
+.frame .beforetag { left: 50%; transform: translateX(-50%); background: var(--yellow); color: #111; font-weight: 600; z-index: 3; }
+.tourbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--green-bg); border: 1px solid var(--green); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.tourbar .tnote { color: var(--text); max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tourbar .treply { color: var(--muted); }
+.tourbar button { padding: 4px 10px; }
+.tourbar .bbtn.on { background: var(--yellow-bg); color: var(--yellow); border-color: var(--yellow); }
+.tourbar .tourin { width: 220px; }
+.tourbtn { padding: 2px 10px; font-size: 12.5px; background: var(--green-bg); color: var(--green); border-color: var(--green); }
+.nc .say { font-size: 12px; color: var(--muted); font-style: italic; }
+.frame canvas.ov { z-index: 2; }   /* the note drawings stay above the "before" frame */
+
+/* old notes (written before the newest version): bulk approve / remove */
+.rv2-oldbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 7px 10px; margin: 0 0 6px; border-radius: 8px; background: var(--yellow-bg); font-size: 12px; }
+.rv2-oldbar[hidden] { display: none; }
+.rv2-oldbar .spacer { flex: 1; }
+.rv2-oldbar button { font-size: 12px; padding: 3px 8px; }
+
+
+/* render settings in the "Render" dialog */
+.rsets { display: flex; flex-wrap: wrap; gap: 10px; }
+.rsets .rset { display: grid; gap: 3px; font-size: 12.5px; }
+.rsets select { min-width: 90px; height: 32px; }
+
+/* "Render" dialog: facts grid, section titles, output box */
+.rdialog { min-width: min(520px, 86vw); }
+.rdialog .rsec { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 12px 0 6px; }
+.rfacts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.rfacts > div { background: var(--card2); border-radius: 7px; padding: 6px 9px; display: grid; gap: 2px; font-size: 13px; }
+.rfacts > div .dim { font-size: 11.5px; }
+/* quality picker: three cards, each carrying its own estimate, so the trade is visible before choosing */
+.rq { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.rq-card { display: grid; gap: 3px; text-align: left; padding: 9px 11px; border-radius: 9px; box-sizing: border-box;
+  background: var(--card2); border: 1px solid var(--border2); color: var(--text); cursor: pointer; }
+.rq-card:hover { border-color: var(--accent); }
+.rq-card.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); }
+.rq-name { font: 600 13px/1.2 var(--font); }
+.rq-card.on .rq-name { color: var(--accent); }
+.rq-sub { font-size: 11.5px; line-height: 1.35; color: var(--muted); }
+.rq-eta { font: 600 12px/1.3 var(--font); color: var(--text); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.rq-card.on .rq-eta { color: var(--accent); }
+@media (max-width: 560px) { .rq { grid-template-columns: 1fr; } }
+.rout { background: var(--card2); border-radius: 7px; padding: 8px 10px; display: grid; gap: 3px; font-size: 13px; }
+.rout input { height: 30px; }
+
+/* scene editor on the live preview (Oct 28) */
+.sedit-ov { position: absolute; inset: 0; z-index: 6; touch-action: none; outline: 2px solid #ffb547; outline-offset: -2px; }
+.sedit-cv { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.sedit-panel { position: absolute; left: 10px; top: 10px; z-index: 7; width: 330px; max-width: calc(100% - 20px); background: rgba(20,22,28,.94); border: 1px solid var(--border2); border-radius: 10px; padding: 9px 10px; display: grid; gap: 7px; font-size: 12.5px; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+.sedit-head, .sedit-row, .sedit-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sedit-head select { max-width: 170px; }
+.sedit-row button { padding: 3px 8px; }
+.sedit-row input[type=range] { flex: 1; }
+.sedit-hint { color: var(--muted); font-size: 11.5px; }
+.sedit-sel { display: grid; gap: 2px; }
+.sedit-sel .mono { font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sedit-seg { justify-self: start; }
+.sedit-foot { font-size: 11.5px; border-top: 1px solid var(--border); padding-top: 6px; }
+.rv2-top button.on, .sedit-panel button.on { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.sedit-panel { width: 370px; }
+.sedit-items { display: flex; flex-wrap: wrap; gap: 4px; max-height: 92px; overflow: auto; }
+.sedit-items button { padding: 2px 7px; font-size: 11.5px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sedit-seg .seg { padding: 4px 8px; font-size: 12px; }
+
+/* automatic scan of a live film (Oct 28) */
+.ascan-panel { position: absolute; right: 10px; top: 10px; z-index: 8; width: 400px; max-width: calc(100% - 20px); max-height: calc(100% - 20px); overflow-y: auto; overflow-x: hidden; background: rgba(20,22,28,.95); border: 1px solid var(--border2); border-radius: 10px; padding: 9px 10px; display: grid; gap: 7px; font-size: 12.5px; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+.ascan-head, .ascan-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ascan-row button { padding: 3px 8px; }
+.ascan-hint, .ascan-sum { font-size: 11.5px; }
+.ascan-cuts { margin-left: 6px; cursor: pointer; }
+.ascan-prog { height: 6px; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; }
+.ascan-prog i { display: block; height: 100%; width: 0; background: var(--accent); }
+.ascan-strip { width: 100%; height: 26px; border-radius: 5px; cursor: pointer; display: block; }
+.ascan-list { display: grid; gap: 3px; }
+.ascan-item { display: flex; align-items: center; gap: 7px; padding: 4px 5px; border-radius: 6px; cursor: pointer; }
+.ascan-item:hover { background: rgba(255,255,255,.06); }
+.ascan-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.ascan-txt { flex: 1; min-width: 0; }
+.ascan-info { font-size: 10.5px; }
+.ascan-txt > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ascan-ok { color: #7ee787; }
+.sedit-lbl { width: 68px; }
+.sedit-val { width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+.sedit-warn { color: #ffb547; font-size: 11.5px; }
+
+/* sound layers under the timeline (Nov 5) */
+.tl2-layers { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 4px 2px 2px; font-size: 12px; }
+.tl2-layer { display: inline-flex; align-items: center; gap: 3px; }
+.tl2-layer.off { opacity: .45; }
+.tl2-layer button { padding: 0 6px; font-size: 11px; line-height: 18px; }
+.tl2-layer button.on { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.layerpick { font-size: 12px; padding: 1px 4px; }
+.tl2-layers { flex-direction: column; align-items: stretch; }
+.tl2-lrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.tl2-layer input[type=range] { width: 84px; }
+.tl2-lval { width: 38px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.tl2-layer.changed b { color: var(--accent); }
+
+/* Nov 6: 2D layers editor (ui/review/edit2d.js) */
+.e2d-panel { width: 380px; max-height: calc(100% - 20px); overflow: auto; }
+.e2d-props { border: 1px solid var(--border); border-radius: 8px; padding: 6px 7px; gap: 6px; background: rgba(255,255,255,.03); }
+.e2d-f { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; }
+.e2d-f input[type=range] { width: 80px; }
+.e2d-list { display: grid; gap: 2px; max-height: 170px; overflow: auto; }
+.e2d-li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.e2d-li:hover { background: var(--card2); }
+.e2d-li.on { background: var(--sel); }
+.e2d-li.off { opacity: .5; }
+.e2d-li b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.e2d-ov:focus { outline-color: #7fd0ff; }
+
+/* Nov 6: added sounds row (ui/review/soundedit.js) */
+.se-row { display: grid; gap: 4px; }
+.se-sel { flex-wrap: wrap; gap: 8px; }
+.se-f { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; }
+.se-f input[type=range] { width: 90px; }
+.se-picker { width: min(620px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+.se-list { overflow: auto; max-height: 52vh; display: grid; gap: 2px; border: 1px solid var(--border); border-radius: 8px; padding: 4px; }
+.se-item { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 6px; font-size: 12.5px; }
+.se-item:hover { background: var(--card2); }
+.se-item .se-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.se-group { font-size: 11px; color: var(--muted); padding: 6px 6px 2px; text-transform: uppercase; letter-spacing: .4px; }
+.e2d-panel { left: auto; right: 10px; }   /* the picture's left side stays visible while editing */
+
+/* P4: sound library + "Film music" (ducks) at the top of the Sounds tab */
+.lib, .mx-duck { display: grid; gap: 6px; font-size: 12px; }
+.mx-duck { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+.mx-duck:empty { display: none; }
+.lib-q { flex: 1 1 120px; min-width: 0; }
+.lib-list { max-height: 34vh; overflow-y: auto; overflow-x: hidden; display: grid; align-content: start; }
+.lib-item { cursor: grab; }
+.lib-item .se-name { flex: 1 1 auto; min-width: 0; }
+.lib-hint { font-size: 11px; }
+
+/* ---- Nov 8 look pass: calmer, clearer controls for people who are not editors ---- */
+.vh-tip { position: fixed; z-index: 9999; max-width: 300px; padding: 6px 9px; border-radius: 8px; background: #f2f2f5; color: #15161b; font-size: 12.5px; line-height: 1.35; box-shadow: 0 6px 22px rgba(0,0,0,.5); pointer-events: none; white-space: normal; }
+.rv2 button { transition: background-color .12s, border-color .12s, color .12s, filter .12s; }
+.rv2 button:focus-visible, .rv2 select:focus-visible, .rv2 input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rv2 select { border-radius: 8px; }
+
+/* top bar: one calm strip; the editors sit together under a small "Edit" label; Render is last */
+.rv2-top { border-radius: 10px; padding: 4px 6px;
+  background: color-mix(in srgb, var(--surface) 34%, transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 10px 34px -18px rgba(0,0,0,.85); }
+.rv2-glabel { font-size: 10.5px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .07em; margin: 0 2px 0 6px; }
+.rv2-top .rv2-ed { background: var(--card); border-color: var(--border); }
+.rv2-top .rv2-ed:hover { background: var(--card2); border-color: var(--border2); }
+.rv2-top .rv2-ed-last { margin-right: 8px; }
+.rv2-top .rv2-render { margin-left: 4px; padding: 6px 14px; border-radius: 9px; }
+
+/* the Tools dropdown: icon, name, shortcut. Sized for reading, not for fitting in a 54 px rail. */
+.rv2-toolmenu { display: flex; flex-direction: column; min-width: 232px; padding: 5px; }
+.rv2-toolmenu .tm-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 9px; border-radius: 7px;
+  background: transparent; border: 0; color: var(--text); text-align: left; font-size: 12.5px; }
+.rv2-toolmenu .tm-row:hover { background: var(--card2); }
+.rv2-toolmenu .tm-row.on { background: var(--accent-bg); color: var(--accent); }
+.rv2-toolmenu .tm-row svg { flex: none; opacity: .9; }
+.rv2-toolmenu .tm-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv2-toolmenu kbd { flex: none; font: 600 10px/1 var(--font); color: var(--dim); background: var(--card2);
+  border: 1px solid var(--border2); border-radius: 4px; padding: 3px 5px; }
+.rv2-toolmenu .tm-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+.rv2-toolmenu .tm-dot { flex: none; width: 18px; height: 18px; display: grid; place-items: center; }
+.rv2-toolmenu .tm-dot .sdot { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); }
+/* ✦ Assets: a frame of what the model made, so a still and a clip can be told apart without opening the file */
+.t .gen-thumbcell { width: 1%; padding: 3px 8px 3px 0; }
+.gen-thumbwrap { position: relative; width: 76px; height: 43px; }
+.gen-thumb { display: block; width: 76px; height: 43px; object-fit: cover; border-radius: 5px; background: var(--card2);
+  border: 1px solid var(--border2); }
+.gen-thumb { object-fit: contain; background: #0b0c10; }
+img.gen-thumb { object-fit: cover; }
+.gen-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 9px; padding-left: 2px; color: #fff; background: rgba(0,0,0,.55);
+  border: 1px solid rgba(255,255,255,.4); pointer-events: none; }
+.gen-thumb-none { display: grid; place-items: center; color: var(--dim); font-size: 12px; }
+/* on a narrow window the picker gives back the room the title needs; fitRow folds it into ⋯ if still too wide */
+@media (max-width: 1500px) { .rv2-top .rv2-pick { max-width: 250px; } }
+@media (max-width: 1300px) { .rv2-top .rv2-pick { max-width: 200px; } }
+
+/* tool rail: icon + name; the names hide when the rail is too short for them */
+.rv2-tools { width: 54px; box-sizing: border-box; padding: 5px 3px; gap: 2px; container-type: size; }
+.rv2-tools .tb { width: 48px; height: auto; flex: 0 1 42px; min-height: 26px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 8px; border: 1px solid transparent; }
+.rv2-tools .tb .tl { font-size: 9.5px; line-height: 1; letter-spacing: .01em; }
+.rv2-tools .tb.on .tl { font-weight: 600; }
+.rv2-tools .tb-style { gap: 2px; }
+.rv2-tools .tsep { width: 34px; }
+@container (max-height: 500px) { .rv2-tools .tb .tl { display: none; } .rv2-tools .tb { flex-basis: 30px; } }
+
+/* first-run hint: key chips instead of a long sentence.
+   Chips keep their own line height and the bar grows instead of clipping, so a narrow
+   window never cuts a shortcut in half. */
+.rv2-tip { gap: 6px 12px; flex-wrap: wrap; overflow: visible; font-size: var(--fs-sm); padding: 7px 10px 7px 13px; background: var(--blue-bg); border: 1px solid #2b4570; }
+.rv2-tip > b { color: var(--blue); flex: none; }
+.rv2-tip .tchip { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; color: #c2c7d4; flex: none; }
+.rv2-tip kbd { font: 600 11px var(--mono); background: var(--card2); border: 1px solid var(--border2); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; color: var(--text); }
+
+/* transport: a bigger, coloured play button; "Add note" stands out */
+/* transport: taller and tighter than the default row, and — since the bar is no longer a glass panel — no border */
+.rv2-transport { height: 40px; padding: 0 6px; gap: 5px; border: 0; }
+.rv2-transport .play { width: 46px; height: 32px; border-radius: 16px; background: color-mix(in srgb, var(--accent) 30%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); color: #fff; font-size: 14px; box-shadow: 0 2px 14px -3px rgba(56,189,248,.5), inset 0 1px 0 rgba(255,255,255,.30); }
+.rv2-transport .play:hover { background: color-mix(in srgb, var(--accent) 40%, transparent); border-color: color-mix(in srgb, var(--accent) 62%, transparent); }
+.rv2-transport .tbtn { height: 30px; border-radius: 7px; }
+.rv2-transport .tp-note { background: var(--accent-bg); color: var(--accent); border-color: #6b4220; font-weight: 600; }
+.rv2-transport .tc { height: 30px; border-radius: 7px; }
+
+/* side panel: bigger tabs; the sound tab is a stack of cards.
+   Tabs keep a comfortable minimum so a label degrades to "Notes" + ellipsis, never to "Not...". */
+.rv2-tab { padding: 8px 11px; font-size: var(--fs-sm); min-width: 64px; }
+.rv2-tab.rv2-tab-x { min-width: 52px; }
+.rv2-sounds { display: grid; gap: 10px; align-content: start; }
+.rv2-sounds > .lib, .rv2-sounds > .mx-duck, .rv2-sounds > .mx { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; margin: 0; }
+.rv2-sounds .mx-title { font-size: 13px; }
+.rv2-sounds button { border-radius: 7px; }
+
+/* timeline headers: roomier mute / solo / level controls. Scaled with the row heights, which roughly doubled: the
+   controls sat at 24-26 px inside rows that are now 44-76 px tall, which read as tiny buttons lost in a lot of space. */
+.tl2-ms { width: 30px; height: 28px; font-size: 12.5px; border-radius: 7px; }
+.tl2-lvl { height: 28px; min-width: 44px; line-height: 26px; border-radius: 7px; font-size: 12px; }
+.tl2-hname { font-size: 13px; }
+/* the label sits on the row's own centre line, so a tall row does not push it to the top edge */
+.tl2-head { padding: 0 8px 0 12px; gap: 6px; }
+.tl2-cnote { font-size: 11.5px; }
+
+/* ---- the Agent tab: a conversation with OpenCode, in this film's folder ------------------------------------- */
+/* grid children default to min-content, which let the controls row push the whole panel wider than its own tab body
+   (measured 421 px inside a 362 px pane) — the moved-in send button was being clipped off the edge. The column is
+   pinned to the pane width and the rows are allowed to shrink. */
+.rv2-agent { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; height: 100%; min-height: 0; gap: 8px; padding: 8px; box-sizing: border-box; }
+.ag-log { overflow: auto; min-height: 0; display: grid; gap: 8px; align-content: start; padding-right: 2px; }
+.ag-empty { display: grid; gap: 6px; place-items: center; padding: 24px 8px; }
+.ag-empty-in { font-size: var(--fs-sm); color: var(--muted); text-align: center; line-height: 1.55; max-width: 260px; }
+.ag-you, .ag-text, .ag-tool, .ag-err, .ag-raw { font-size: var(--fs-sm); line-height: 1.55; border-radius: 10px; padding: 8px 11px; white-space: pre-wrap; word-break: break-word; }
+.ag-you { background: var(--card2); color: var(--text); border: 1px solid var(--border); justify-self: end; max-width: 92%; }
+.ag-text { background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+.ag-tool { background: transparent; color: var(--muted); border-left: 2px solid var(--border2); border-radius: 0 8px 8px 0; padding: 5px 10px; font-family: var(--mono); font-size: 11.5px; }
+.ag-err { background: var(--red-bg, rgba(255,80,80,.10)); border: 1px solid rgba(255,80,80,.35); color: var(--red, #ff6b6b); }
+.ag-raw { background: transparent; color: var(--dim); font-family: var(--mono); font-size: 11px; border: 0; padding: 2px 4px; }
+.ag-row { display: block; }
+.ag-input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 62px; max-height: 200px; font-family: var(--font); font-size: var(--fs-sm); line-height: 1.5; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; color: var(--text); }
+.ag-input:focus { border-color: var(--blue); outline: none; }
+/* Two rows: the model picker, then the two send buttons together. They must never wrap apart, which is exactly
+   what a single flex line did at panel width. */
+.ag-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: center; min-width: 0; }
+/* The model picker is a button now, not a select: ~600 models cannot be browsed in a native dropdown. It shows the
+   chosen model truncated at the left, and a search popover does the finding. */
+.ag-model { width: 100%; min-width: 0; text-align: left; font-size: 11.5px; font-family: var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: ltr; }
+.ag-modellayer { display: grid; gap: 6px; width: 100%; }
+.ag-modelsearch { width: 100%; min-width: 0; box-sizing: border-box; font-family: var(--font); font-size: var(--fs-sm);
+  padding: 7px 9px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); color: var(--text); }
+.ag-modelsearch:focus { border-color: var(--blue); outline: none; }
+.ag-modellist { max-height: min(44vh, 320px); overflow: auto; display: grid; gap: 1px; align-content: start; min-width: 260px; }
+/* A flex row with `overflow: hidden` does not grow to its text here — baseline and center both collapsed the row to
+   its padding, 10 px, so the list looked empty while the text sat in the DOM. Rather than keep fighting the intrinsic
+   height, the row states its own: 18 px line inside 5 px padding on each side. */
+.ag-modelrow { display: flex; align-items: center; gap: 0; width: 100%; height: 28px; text-align: left;
+  background: transparent; border: 0; border-radius: 6px; padding: 0 8px; font-family: var(--mono);
+  font-size: 11.5px; line-height: 18px; color: var(--text); white-space: nowrap; overflow: hidden;
+  box-shadow: none; min-width: 0; box-sizing: border-box; }
+.ag-modelrow > span { display: inline; min-width: 0; overflow: hidden; text-overflow: ellipsis; line-height: 18px; }
+.ag-modelrow .ag-modelfam { color: var(--dim); }
+.ag-modelrow .ag-modelname { color: var(--text); }
+.ag-modelrow.hi { background: rgba(255,255,255,.08); }
+.ag-modelrow.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ag-modelrow.on .ag-modelname { color: var(--accent); }
+.ag-modelempty { padding: 10px 8px; font-size: var(--fs-sm); color: var(--muted); }
+.ag-controls > .spacer { display: none; }   /* the grid stacks the rows; a flex spacer has no job */
+.ag-sendrow { display: flex; gap: 8px; min-width: 0; justify-content: flex-end; }
+.ag-sendrow > .ag-send { flex: none; }
+/* the notes send is allowed to give up width before Send does, and ellipsis its count on a very narrow panel */
+.ag-sendrow > :not(.ag-send) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
+.ag-send { flex: none; }
+/* the notes send, moved here out of the panel footer so both sends read as one row. It is allowed to shrink and
+   ellipsis its count on a narrow panel rather than push Send off the edge. */
+.ag-controls > button:not(.ag-send) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
+.ag-stop { flex: none; color: var(--red, #ff6b6b); }
+.ag-status { font-size: 11px; color: var(--muted); letter-spacing: .02em; }
+.ag-status.running { color: var(--accent); }
+.ag-status.failed, .ag-status.timeout { color: var(--red, #ff6b6b); }

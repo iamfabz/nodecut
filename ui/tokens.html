@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NodeCut tokens — live check</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { margin: 0; padding: 24px; background: var(--canvas); color: var(--text-main); font-family: var(--font); }
+  .row { display: grid; grid-template-columns: 190px 1fr 120px; gap: 14px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--surface-border); font-size: 13px; }
+  .sw { height: 30px; border-radius: 6px; border: 1px solid var(--surface-border); }
+  code { font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+  h1 { font-family: var(--head); font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--text-muted); font-size: 13px; margin-bottom: 18px; }
+  .cards { display: flex; gap: 12px; margin: 22px 0; }
+  .card { flex: 1; background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 14px; }
+  .card .t { font-family: var(--head); font-weight: 700; font-size: 14px; }
+  .card .m { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+  button.primary { background: var(--accent-primary); color: var(--accent-ink); border: 1px solid var(--accent-primary); border-radius: 8px; padding: 7px 14px; font-weight: 600; }
+  .glow { margin-top: 14px; padding: 12px; border-radius: 8px; background: var(--accent-glow); border: 1px solid var(--accent-primary); }
+</style>
+</head>
+<body>
+  <h1>NodeCut design tokens</h1>
+  <div class="sub">Rendered from the live stylesheet, so this is the real palette the app uses — not a mock.</div>
+
+  <div class="cards">
+    <div class="card"><div class="t">Canvas Base</div><div class="m">#0a0a0c</div></div>
+    <div class="card"><div class="t">Surface Primary</div><div class="m">#131316</div></div>
+    <div class="card"><div class="t">Accent</div><div class="m">#38bdf8</div>
+      <div style="margin-top:9px"><button class="primary">Primary</button></div></div>
+    <div class="card"><div class="t">Text Muted</div><div class="m">#7d7d87</div>
+      <div style="margin-top:9px;color:var(--text-muted);font-size:12px">Secondary labels, timestamps, inactive states</div></div>
+  </div>
+
+  <div id="rows"></div>
+  <div class="glow"><b style="color:var(--accent-primary)">Accent Glow</b> — focus rings, hover states, soft background glows behind active elements.</div>
+
+<script type="module">
+  import { theme } from '/review/theme.js';
+  const t = theme();
+  const items = [
+    ['--canvas', t.canvas, 'Canvas Base'],
+    ['--surface', t.surface, 'Surface Primary'],
+    ['--surface-border', t.surfaceBorder, 'Surface Border'],
+    ['--text-main', t.textMain, 'Text Main'],
+    ['--text-muted', t.textMuted, 'Text Muted'],
+    ['--accent-primary', t.accentPrimary, 'Accent Primary'],
+    ['--accent-glow', t.accentGlow, 'Accent Glow'],
+  ];
+  document.getElementById('rows').innerHTML = items.map(([n, v, label]) =>
+    `<div class="row"><div>${label}<br><code>${n}</code></div>
+     <div class="sw" style="background:${v}"></div>
+     <div><code>${v}</code></div></div>`).join('');
+  // prove the canvas code sees the same values the stylesheet does
+  document.title = 'tokens:' + (t.accentPrimary === '#38bdf8' ? 'ok' : 'MISMATCH ' + t.accentPrimary);
+</script>
+</body>
+</html>
