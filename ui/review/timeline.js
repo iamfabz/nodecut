@@ -114,11 +114,14 @@ export function createTimeline(ctx) {
     waveCache.clear();
     if (live) size();
   }
-  // hiding notes is a filter, not a collapse: the row goes away entirely and the picture row stops drawing its ticks
+  // hiding notes is a filter over the markers, not a collapse: the row stays where it is and draws nothing
   function toggleNotes() {
     notesOff = !notesOff;
     ls.set(NOTES_OFF_KEY, notesOff);
     relayout();
+    // the timeline is only half of it: the saved drawings are painted on the picture too, and that overlay belongs to the
+    // review page. Tell it, so one click puts notes away everywhere instead of only in the lanes.
+    try { ctx.onNotesVisibility?.(notesOff); } catch { }
   }
   function toggleRow(id) {
     collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id);

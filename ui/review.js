@@ -430,7 +430,7 @@ export async function reviewPage(page, id, relArg = '') {
 
   // timeline (built before the transport: the transport's zoom controls drive the timeline's view)
   let layerLabels = [], soundEd = null;   // sound layer names (set once loaded), added sounds
-  const timeline = createTimeline({ overlayHost: () => rv2, live: !!liveSrc, pause: () => { if (shuttle.speed()) shuttle.stop(); else { videoA.pause(); videoB.pause(); } }, needPeaks: src => loadWave(src, p.path + '/' + src, false), layerOn: lid => mixer ? mixer.audible(lid) : true, dur: () => dur(), time: () => liveSrc?.displayedTime ?? videoA.currentTime, fps, chunkSec, notes: () => notes, selected: () => S.selected, range: () => S.range, loopOn: () => S.loopOn, setRange: (a, b) => setRange(a, b), changed: () => versionInfo()?.changedRanges, seek: t => seek(t), selectNote: nid => selectNote(nid), onDrop: d => soundEd?.dropAdd(d) });
+  const timeline = createTimeline({ overlayHost: () => rv2, live: !!liveSrc, pause: () => { if (shuttle.speed()) shuttle.stop(); else { videoA.pause(); videoB.pause(); } }, needPeaks: src => loadWave(src, p.path + '/' + src, false), layerOn: lid => mixer ? mixer.audible(lid) : true, dur: () => dur(), time: () => liveSrc?.displayedTime ?? videoA.currentTime, fps, chunkSec, notes: () => notes, selected: () => S.selected, range: () => S.range, loopOn: () => S.loopOn, setRange: (a, b) => setRange(a, b), changed: () => versionInfo()?.changedRanges, seek: t => seek(t), selectNote: nid => selectNote(nid), onDrop: d => soundEd?.dropAdd(d), onNotesVisibility: () => { try { redraw(); } catch { } } });
   // the scene outline beside the preview: one still per beat, click to jump
   const outline = createSceneOutline({
     seek: t => seek(t), api, projectId: id,
@@ -793,7 +793,13 @@ export async function reviewPage(page, id, relArg = '') {
   function redraw() {
     const W = ov.width, H = ov.height; octx.clearRect(0, 0, W, H);
     const t = noteTime(); labelHits = [];
+    // The same setting the timeline's eye writes. Hidden means hidden on the picture too — the saved drawings and their
+    // labels are the thing most in the way when watching a film. A draft being drawn right now still shows: it is not a
+    // note yet, and hiding the strokes under the cursor would be baffling.
+    let notesOff = false;
+    try { notesOff = localStorage.getItem('vh-tl-notes-off') === 'true'; } catch { }
     for (const n of notes) {
+      if (notesOff) break;
       if (!liveMode && n.file && n.file !== cur.rel && n.file !== '~live') continue;
       const at = n.at ?? n.t, near = Math.abs(t - at) < 0.35 || (n.t2 != null && t >= n.t && t <= n.t2);
       if (!near && n.id !== S.selected) continue;
