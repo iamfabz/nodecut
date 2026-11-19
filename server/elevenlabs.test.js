@@ -1,9 +1,12 @@
 // ElevenLabs is checked as data, not by calling it: the body that goes on the wire, the file name that lands on disk, and
 // the refusals that should happen before anything is sent. Same approach the other generation tests use, so a wrong field
 // is caught without spending the user's credits.
+//
+// Nothing in this file may make a network call. keyOf() falls back to the hub's saved config, so a test that only clears
+// the env var would still find a real key on a real machine — that happened once and attempted a live request.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { voiceoverRequest, musicRequest, sfxRequest, request, safeName, extFor, make, audioDirOf } from './elevenlabs.js';
+import { voiceoverRequest, musicRequest, sfxRequest, request, safeName, extFor, audioDirOf } from './elevenlabs.js';
 
 test('voiceover: posts to the chosen voice, with the text and settings', () => {
   const r = voiceoverRequest({ text: 'Hello there', voiceId: 'v123' });
@@ -59,13 +62,21 @@ test('extFor: the extension follows what the server actually sent', () => {
   assert.equal(extFor(''), 'mp3', 'mp3 is the documented default');
 });
 
-test('make(): no key means a clear message, not a network call', async () => {
-  const prev = process.env.ELEVENLABS_API_KEY;
-  delete process.env.ELEVENLABS_API_KEY;
-  await assert.rejects(() => make({ path: '/tmp/does-not-matter' }, 'sfx', { prompt: 'x' }), /Settings → Generation/);
-  if (prev !== undefined) process.env.ELEVENLABS_API_KEY = prev;
-});
-
 test('audioDirOf: audio always sits inside the film', () => {
   assert.equal(audioDirOf({ path: '/films/mine' }), '/films/mine/audio');
+});
+
+// --- plan entitlements -----------------------------------------------------------------------------------------
+// A real failure, worth pinning: a film requested mp3_44100_192, which needs the Creator tier. The account did not have
+// it, every call returned 403 `subscription_required`, and the caller silently fell back to a machine voice — so the
+// symptom looked like "the voice is robotic", not "the format was refused". No request may name a tier-locked format.
+test('no request pins an output format that some plans are refused', () => {
+  const all = [
+    voiceoverRequest({ text: 'x', voiceId: 'v' }).url,
+    musicRequest({ prompt: 'x' }).url,
+    sfxRequest({ prompt: 'x' }).url,
+  ];
+  for (const url of all) {
+    assert.doesNotMatch(url, /output_format=/i, 'the format must be left to the account, not requested: ' + url);
+  }
 });
