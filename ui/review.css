@@ -702,6 +702,10 @@ img.gen-thumb { object-fit: cover; }
    ellipsis its count on a narrow panel rather than push Send off the edge. */
 .ag-controls > button:not(.ag-send) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
 .ag-stop { flex: none; color: var(--red, #ff6b6b); }
-.ag-status { font-size: 11px; color: var(--muted); letter-spacing: .02em; }
+.ag-status { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--muted); letter-spacing: .02em; }
+/* The ETA reads as a quiet second half of the status row, not a second label. It sits at the right edge so the eye finds
+   it in the same place every run; `.late` says the estimate has been passed without pretending the number was a promise. */
+.ag-eta { margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; color: var(--dim, var(--muted)); }
+.ag-eta.late { color: var(--amber, #f0b429); }
 .ag-status.running { color: var(--accent); }
 .ag-status.failed, .ag-status.timeout { color: var(--red, #ff6b6b); }

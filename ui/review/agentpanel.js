@@ -111,6 +111,10 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
   });
   paintModelBtn();
   const status = mk('div', 'ag-status');
+  const statusTxt = mk('span', 'ag-status-txt');
+  const etaTxt = mk('span', 'ag-eta');
+  etaTxt.hidden = true;
+  status.append(statusTxt, etaTxt);
   row.append(input);
   const spacer = mk('span', 'spacer'); const controls = mk('div', 'ag-controls');
   // `aside` is the notes "Send to OpenCode" button. It used to live in the panel's footer, a full-width bar at the
@@ -178,8 +182,24 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
       else if (e.kind === 'thinking') { /* not shown by default; the reply is what matters */ }
     }
     if (atBottom) log.scrollTop = log.scrollHeight;
-    status.textContent = label(state.status) + (state.model ? ' · ' + state.model : '');
+    // textContent on a container deletes its children, which silently removed the ETA span. The label is its own node so
+    // the ETA can sit beside it and survive every redraw.
+    statusTxt.textContent = label(state.status) + (state.model ? ' · ' + state.model : '');
     status.className = 'ag-status ' + state.status;
+    // The ETA sits at the right-hand end of the status row, under Send. While running it shows what is known and how far
+    // along it is; once it was running long enough for the estimate to be worth stating, it counts down.
+    const eta = state.eta && state.status === 'running' ? state.eta : null;
+    if (eta) {
+      const bits = [];
+      if (eta.steps) bits.push(`step ${eta.steps}`);
+      bits.push(eta.text);
+      etaTxt.textContent = bits.join(' · ');
+      etaTxt.className = 'ag-eta' + (eta.confident === false ? ' late' : '');
+      etaTxt.hidden = false;
+    } else if (etaTxt) {
+      etaTxt.hidden = true;
+      etaTxt.textContent = '';
+    }
     const running = state.status === 'running';
     sendBtn.disabled = running || busy;
     stopBtn.hidden = !running;

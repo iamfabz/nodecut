@@ -141,3 +141,68 @@ test('clearing starts a NEW session, so the agent forgets what was cleared', () 
   assert.deepEqual(after.entries, []);
   assert.equal(state('clearme', dir).entries.length, 0);
 });
+
+// --- the completion estimate -----------------------------------------------------------------------------------
+// These assert the honest behaviour, not a precise number: with no history it must NOT claim to know, and with history
+// it must use this film's own measured runs rather than an invented figure.
+import { estimate, fmtDur } from './agent.js';
+
+test('estimate: with no past runs it stays vague rather than inventing a number', () => {
+  const e = estimate({ status: 'running', startedAt: 1_000_000, steps: 2, runTimes: [], now: 1_030_000 });
+  assert.equal(e.hasHistory, false);
+  assert.equal(e.remainingMs, null);
+  assert.equal(e.confident, false);
+  assert.match(e.text, /few minutes/);
+  // and it never dresses the guess up as a countdown
+  assert.doesNotMatch(e.text, /left/);
+});
+
+test('estimate: elapsed time is always reported truthfully', () => {
+  const e = estimate({ status: 'running', startedAt: 1_000_000, runTimes: [], now: 1_090_000 });
+  assert.equal(e.elapsedMs, 90_000);
+  assert.match(e.text, /working/);
+});
+
+test('estimate: with history it uses the median of this film\'s own runs', () => {
+  // 60s, 120s, 300s -> median 120s; at 30s elapsed with no steps, about 90s should remain
+  const e = estimate({ status: 'running', startedAt: 1_000_000, steps: 0, runTimes: [60000, 120000, 300000], now: 1_030_000 });
+  assert.equal(e.hasHistory, true);
+  assert.equal(e.typicalMs, 120000);
+  assert.ok(e.remainingMs > 80_000 && e.remainingMs < 100_000, 'remaining should be near 90s, got ' + e.remainingMs);
+  assert.match(e.text, /left/);
+  assert.equal(e.confident, true);
+});
+
+test('estimate: steps reduce the remaining time', () => {
+  const early = estimate({ status: 'running', startedAt: 1_000_000, steps: 1, runTimes: [120000], now: 1_020_000, typicalSteps: 10 });
+  const later = estimate({ status: 'running', startedAt: 1_000_000, steps: 8, runTimes: [120000], now: 1_020_000, typicalSteps: 10 });
+  assert.ok(later.remainingMs < early.remainingMs, 'more steps must mean less remaining');
+});
+
+test('estimate: past the expected time it says so instead of showing a negative countdown', () => {
+  const e = estimate({ status: 'running', startedAt: 1_000_000, steps: 0, runTimes: [60000], now: 1_300_000 });
+  assert.equal(e.confident, false);
+  assert.ok(e.remainingMs >= 0, 'never negative');
+  assert.match(e.text, /longer than usual/);
+});
+
+test('estimate: not running means no estimate at all', () => {
+  for (const status of ['idle', 'done', 'failed', 'stopped', 'timeout']) {
+    const e = estimate({ status, startedAt: 1_000_000, runTimes: [60000], now: 1_200_000 });
+    assert.equal(e.text, '', status + ' must not show an estimate');
+  }
+});
+
+test('estimate: a single absurdly short run does not poison the median', () => {
+  // runs under 5s are discarded: they are crashes, not a measure of how long the work takes
+  const e = estimate({ status: 'running', startedAt: 1_000_000, steps: 0, runTimes: [1000, 60000], now: 1_010_000 });
+  assert.equal(e.typicalMs, 60000);
+});
+
+test('fmtDur: short and readable', () => {
+  assert.equal(fmtDur(45_000), '45 s');
+  assert.equal(fmtDur(60_000), '1 min');
+  assert.equal(fmtDur(90_000), '1 min 30 s');
+  assert.equal(fmtDur(300_000), '5 min');
+  assert.equal(fmtDur(3_600_000), '60 min');
+});
