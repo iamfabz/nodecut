@@ -108,6 +108,13 @@ export const t2vCost = (resolution = '720p') => resolution === '480p' ? T2V_COST
 // Synchronous from the caller's point of view: a five-second clip takes a few seconds, so there is no job to poll and
 // nothing to leave running if the window closes.
 export async function makeT2V(p, { prompt, resolution = '720p', orientation = 'landscape', seed, model = T2V_MODEL } = {}) {
+  // The body below is FastWan's shape. Another model takes different keys (p-video wants `duration`, `fps`, `image`), so
+  // running this against one would spend money sending a body it does not understand. Refuse before anything else —
+  // settings, keys, the network — because a wrong model is a wrong call no matter how the studio is configured, and a
+  // wrong model that answers 200 is worse than an error: the clip looks fine and is not the one that was asked for.
+  if (model !== T2V_MODEL) {
+    throw Object.assign(new Error(`${model} does not use this endpoint: text-to-video here runs ${T2V_MODEL}. For PrunaAI/p-video use the p-video route, which takes a still.`), { code: 400 });
+  }
   const s = genSettings();
   if (!s.enabled) throw Object.assign(new Error('Generation is off. Turn it on in Settings > Generation.'), { code: 403 });
   const key = keyOf('DEEPINFRA_API_KEY');
@@ -205,6 +212,70 @@ export async function makeClip(p, { prompt, plateId, plateFile, model = genSetti
   let j; try { j = JSON.parse(text); } catch { throw Object.assign(new Error('OpenRouter returned something that is not JSON'), { code: 400 }); }
   if (!j?.id) throw Object.assign(new Error('OpenRouter accepted nothing: no job id'), { code: 400 });
   return { jobId: j.id, pollingUrl: j.polling_url || `${OPENROUTER_VIDEOS}/${j.id}`, body };
+}
+
+// ---- i2v on DeepInfra: PrunaAI/p-video, synchronous and cheap ------------------------------------------------
+// Unlike OpenRouter, this model answers in one call — the mp4 comes back in the response, so there is no job to poll and
+// nothing left running if the window closes. Five seconds at 720p costs $0.10; 1080p costs the same for two, and draft
+// mode is a quarter of that for a look before committing.
+export const PVIDEO_MODEL = 'PrunaAI/p-video';
+export const PVIDEO_PER_SEC = { '720p': 0.02, '1080p': 0.04 };
+// Draft is a quarter of the price ("4x faster and cheaper"), so it divides rather than multiplies.
+export const pvideoCost = (seconds = 5, resolution = '720p', draft = false) =>
+  +((PVIDEO_PER_SEC[resolution] || PVIDEO_PER_SEC['720p']) * (draft ? 0.25 : 1) * seconds).toFixed(4);
+
+export async function makePVideo(p, { prompt, plateId, plateFile, duration = 5, resolution = '720p', draft = false, upsampling = false, tunnelUrl } = {}) {
+  const s = genSettings();
+  if (!s.enabled) throw Object.assign(new Error('Generation is off. Turn it on in Settings > Generation.'), { code: 403 });
+  const key = keyOf('DEEPINFRA_API_KEY');
+  if (!key) throw Object.assign(new Error('No DeepInfra API key. Add one in Settings > Generation.'), { code: 403 });
+  const still = plateFile || (plateId && get(p, plateId)?.file) || null;
+  if (plateId && !still) throw Object.assign(new Error(`no still with id ${plateId} in this film`), { code: 404 });
+  if (!still) throw Object.assign(new Error('an image-to-video clip needs a still to start from'), { code: 400 });
+  const abs = path.join(p.path, still);
+  if (!fs.existsSync(abs)) throw Object.assign(new Error(`the still is missing: ${still}`), { code: 404 });
+  if (!tunnelUrl) throw Object.assign(new Error('the starting still is not reachable from the internet yet'), { code: 500 });
+  const res = resolution === '1080p' ? '1080p' : '720p';
+  const secs = Math.max(1, Math.min(10, +duration || 5));
+  const cost = pvideoCost(secs, res, draft);
+  checkBudget(p, cost);
+
+  const body = { prompt: String(prompt || '').slice(0, 2000), image: tunnelUrl, duration: secs, resolution: res, fps: 24, draft: !!draft, prompt_upsampling: !!upsampling };
+  const r = await fetch(DEEPINFRA_INFER + PVIDEO_MODEL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    // 5 s took ~43 s in testing; 10 s at 1080p is documented at ~43 s, so this leaves room for a queue without
+    // turning a slow job into a hang nobody notices
+    signal: AbortSignal.timeout(900000),
+  });
+  const text = await r.text();
+  if (!r.ok) throw Object.assign(new Error(`DeepInfra said ${r.status}: ${text.slice(0, 300)}`), { code: 400 });
+  let j; try { j = JSON.parse(text); } catch { throw Object.assign(new Error('DeepInfra returned something that is not JSON'), { code: 400 }); }
+  const url = j?.video_url;
+  if (!url) throw Object.assign(new Error('DeepInfra returned no video'), { code: 400 });
+  const buf = /^data:/i.test(url)
+    ? Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')
+    : Buffer.from(await (await fetch(url, { signal: AbortSignal.timeout(120000) })).arrayBuffer());
+  if (!buf.length) throw Object.assign(new Error('DeepInfra returned an empty video'), { code: 502 });
+
+  const id = newId();
+  fs.mkdirSync(clipDir(p), { recursive: true });
+  const file = rel(CLIP_DIR, id + '.mp4');
+  fs.writeFileSync(path.join(p.path, file), buf);
+  const rec = {
+    id, kind: 'clip', state: 'ready', file, name: String(body.prompt).slice(0, 60), prompt: body.prompt,
+    source: 'model', provider: 'deepinfra', model: PVIDEO_MODEL, resolution: res, duration: secs, cost,
+    billed: j?.inference_status?.cost ?? null, from: 'still', plateId: plateId || null, draft: !!draft,
+  };
+  add(p, rec);
+  try {
+    const baked = await bakeClip(p, id, {});
+    Object.assign(rec, { baked: true, atlas: rel(ATLAS_DIR, id + '.json'), frames: baked?.frames || null });
+  } catch (e) {
+    Object.assign(rec, { baked: false, bakeError: e.message });
+  }
+  return rec;
 }
 
 // The job id comes back as `id` on OpenRouter today; older/other shapes use `generation_id`. Read either rather than
@@ -354,6 +425,23 @@ export function routes(route, project, readBody, port) {
   });
 
   // still -> a video job. The tunnel is up only while the submit is in flight.
+  // text-to-video on DeepInfra via Pruna p-video: synchronous, so the mp4 is already on disk when this returns.
+  route('POST', '/api/gen/:id/pvideo', async (req, url, { id }) => {
+    const p = need(id), body = await readBody(req);
+    const s = genSettings();
+    if (!s.enabled) throw Object.assign(new Error('Generation is off. Turn it on in Settings > Generation.'), { code: 403 });
+    checkBudget(p, pvideoCost(body.duration, body.resolution, body.draft));
+    const shot = oneShotFile(path.join(p.path, body.plateFile || get(p, body.plateId)?.file || ''));
+    let tunnel = null;
+    try {
+      tunnel = await startTunnel(port);
+      return await makePVideo(p, { ...body, tunnelUrl: tunnel.url + shot.urlPath });
+    } finally {
+      shot.forget();
+      if (tunnel) try { tunnel.close(); } catch { }
+    }
+  });
+
   // text-to-video on DeepInfra: cheap, a few seconds, so it answers directly instead of handing back a job id
   route('POST', '/api/gen/:id/t2v', async (req, url, { id }) => {
     const p = need(id), body = await readBody(req);
@@ -378,6 +466,9 @@ export function routes(route, project, readBody, port) {
     let tunnel = null;
     try {
       tunnel = await startTunnel(port);
+      // The tunnel stays up for the whole call, not just the submit. DeepInfra (p-video) reads the still lazily while it
+      // works, and closing at submit turned every such job into a bare "generation failed" about 11 s in. The exposure is
+      // unchanged in kind: one random path, one file, GET only, forgotten the moment the call returns.
       const job = await makeClip(p, { ...body, ...plan, tunnelUrl: tunnel.url + shot.urlPath });
       const rec = { id: newId(), kind: 'clip', state: 'running', jobId: job.jobId, provider: 'openrouter', model: plan.model, resolution: plan.resolution, duration: plan.duration, cost: clipCost(pricing, plan), prompt: String(body.prompt || '').slice(0, 2000), plateId: body.plateId || null, file: null, pricedAt: new Date().toISOString() };
       // a readable name for the timeline bar: the first words of the motion, which is what tells two clips apart
