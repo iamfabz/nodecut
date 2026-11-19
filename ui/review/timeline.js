@@ -89,7 +89,7 @@ export function createTimeline(ctx) {
   function relayout(live = true) {   // live = false while being built: the caller's ctx (dur, time…) is not ready yet
     // an old clip without a lane gets one once (timestamp order); it is saved with it on the next real change
     if (clips) for (const c of clips.filter(q => !Number.isInteger(q.lane)).sort((p, q) => p.t - q.t)) c.lane = assignLane(clips, c, dur());
-    rows = buildRows({ live: !!ctx.live, strip, scenes, transcript: tr, layers, cues, clips, canClips: !!clips, gen, collapsed, notesOff });
+    rows = buildRows({ live: !!ctx.live, strip, scenes, transcript: tr, layers, cues, clips, canClips: !!clips, gen, collapsed });
     H = Math.max(20, rows.reduce((s, r) => s + r.h, 0));
     heads.innerHTML = ''; headEls = new Map();
     for (const r of rows) {
@@ -99,9 +99,9 @@ export function createTimeline(ctx) {
       const add = r.kind === 'clips' && clipOps?.pick && r.h >= 26 ? h('button', { class: 'tl2-hadd', title: r.clipKind === 'music' ? 'Add music (at the playhead)' : 'Add sound effect (at the playhead)', onclick: () => clipOps.pick(r.clipKind) }, '➕') : null;
       // P3c: M / S / level chip from the mixer (they update themselves); rows under 26 px have none
       const mx = mixer && r.header && r.h >= 26 ? mixer.controls(r.id) : null;
-      // The notes eye lives on the Scenes row, not the Notes row: hiding notes removes that row, so a control inside it
-      // would disappear with the thing it controls and there would be no way back short of clearing storage.
-      const eye = r.id === 'scenes' && r.h >= 26 ? h('button', {
+      // The eye sits on the Notes row, next to the word it controls. Hiding only clears the markers, so the row is still
+      // there and the eye with it — which is why it belongs here rather than somewhere else on the timeline.
+      const eye = r.id === 'notes' && r.h >= 26 ? h('button', {
         class: 'tl2-heye' + (notesOff ? ' off' : ''), title: notesOff ? 'Show notes on the timeline' : 'Hide notes on the timeline',
         'aria-pressed': notesOff ? 'true' : 'false', 'aria-label': notesOff ? 'Show notes' : 'Hide notes',
         onclick: ev => { ev.stopPropagation(); toggleNotes(); },
@@ -301,6 +301,9 @@ export function createTimeline(ctx) {
   function drawNotes(r) {
     const w = W(), sel = ctx.selected(), y0 = r.y, hh = r.h, rad = Math.max(3, Math.min(5, hh / 2 - 3));
     g.fillStyle = theme().surface; g.fillRect(0, y0, w, hh);
+    // Hidden notes: the row and its space stay (so the layout does not jump and the eye stays where you left it), but no
+    // marker, no range bar and no count is drawn. Clicking in the empty row still does nothing, same as before.
+    if (notesOff) { groups = []; return; }
     for (const n of ctx.notes()) if (n.t2 != null) { const x = tx(n.t); g.fillStyle = statusColor(n.status); g.globalAlpha = .55; g.fillRect(x, y0 + hh - 5, Math.max(3, tx(n.t2) - x), 3); g.globalAlpha = 1; }
     groups = noteGroups();
     g.font = FONT(600, hh < 18 ? 8.5 : 10); g.textBaseline = 'middle'; g.textAlign = 'center';
