@@ -131,3 +131,40 @@ test('genapi: a finished job settles the cap to what the provider billed, not to
   addSpend(p, 1.85 - 1.9);
   assert.doesNotThrow(() => checkBudget(p, 0.1));
 });
+
+// --- text-to-video on DeepInfra ---------------------------------------------------------------------------------
+// The studio defaults to FastVideo's FastWan because it is the cheapest 720p text-to-video DeepInfra lists: $0.0225 for
+// five seconds, which is roughly a tenth of the OpenRouter video models for the same length.
+import { t2vBody, t2vCost, T2V_MODEL, T2V_COST } from './genapi.js';
+
+test('t2v: the body matches DeepInfra\'s documented fields', () => {
+  const b = t2vBody({ prompt: 'a slow orbit around a glass cube' });
+  assert.equal(b.seconds, 5, 'this model only makes five-second clips');
+  assert.equal(b.resolution, '720p', '720p is the default the user asked for, not 480p');
+  assert.equal(b.orientation, 'landscape');
+  assert.match(b.prompt, /glass cube/);
+  assert.equal('frame_images' in b, false, 'a text shot has no starting still');
+});
+
+test('t2v: resolution and orientation are constrained to what the model offers', () => {
+  assert.equal(t2vBody({ prompt: 'x', resolution: '480p' }).resolution, '480p');
+  assert.equal(t2vBody({ prompt: 'x', resolution: '1080p' }).resolution, '720p', 'unsupported sizes fall back, never sent through');
+  assert.equal(t2vBody({ prompt: 'x', orientation: 'portrait' }).orientation, 'portrait');
+  assert.equal(t2vBody({ prompt: 'x', orientation: 'sideways' }).orientation, 'landscape');
+});
+
+test('t2v: an empty prompt is refused before anything is sent', () => {
+  assert.throws(() => t2vBody({ prompt: '   ' }), /Describe the shot/);
+});
+
+test('t2v: the price is the published one, and 480p is half', () => {
+  assert.equal(T2V_MODEL, 'FastVideo/FastWan2.2-TI2V-5B-FullAttn-Diffusers');
+  assert.equal(T2V_COST, 0.0225);
+  assert.equal(t2vCost('720p'), 0.0225);
+  assert.equal(t2vCost('480p'), 0.01125, 'the listing says 480p is half price');
+});
+
+test('t2v: a seed is sent only when there is one', () => {
+  assert.equal('seed' in t2vBody({ prompt: 'x' }), false, 'an absent seed is not seed 0');
+  assert.equal(t2vBody({ prompt: 'x', seed: 0 }).seed, 0, 'seed 0 is a real seed');
+});
