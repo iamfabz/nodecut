@@ -120,10 +120,38 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
   if (aside) sendRow.append(aside);
   sendRow.append(sendBtn);
   controls.append(modelBtn, stopBtn, spacer, sendRow);
-  el.append(log, row, controls, status);
+  el.append(stalled, log, row, controls, status);
 
   let state = { status: 'idle', entries: [] };
   let busy = false;
+
+  // A brand-new film whose agent never began is the one state where silence looks like the app is broken: the folder
+  // exists, the page looks normal, and no work is happening. Show it plainly with a way out, instead of relying on
+  // someone noticing there is nothing in the transcript.
+  const stalled = mk('div', 'ag-stalled');
+  stalled.hidden = true;
+  function paintStalled() {
+    const idleAndEmpty = state.status === 'idle' && !(state.entries || []).length;
+    stalled.hidden = !(idleAndEmpty && state.hasBrief);
+    if (stalled.hidden) return;
+    stalled.replaceChildren();
+    stalled.append(
+      mk('span', 'ag-stalled-txt', 'This film has a brief but the agent has not started building it.'),
+      Object.assign(mk('button', { class: 'ag-stalled-btn' }), {
+        textContent: 'Start building it',
+        onclick: async () => {
+          stalled.hidden = true;
+          try {
+            await api(`/api/project/${projectId}/agent/start-building`, { method: 'POST' });
+            await refresh(); poll();
+          } catch (e) {
+            state = { ...state, entries: [...state.entries, { kind: 'error', text: e.message }] };
+            renderLog();
+          }
+        },
+      }),
+    );
+  }
 
   const label = (st) => ({
     idle: 'Ready', running: 'Working…', done: 'Done', failed: 'Failed', stopped: 'Stopped', timeout: 'Timed out',
@@ -136,6 +164,7 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
     if (!state.entries.length) {
       log.append(mk('div', 'ag-empty'), Object.assign(mk('div', 'ag-empty-in'), { textContent: 'Ask the agent to plan, build or fix this film. It works in this project folder.' }));
     }
+    paintStalled();
     for (const e of state.entries) {
       if (e.kind === 'you') log.append(withText(mk('div', 'ag-you'), e.text));
       else if (e.kind === 'text') log.append(withText(mk('div', 'ag-text'), e.text));

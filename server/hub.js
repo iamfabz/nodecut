@@ -162,13 +162,57 @@ route('POST', '/api/projects/new', async req => {
   let p = null; try { await scan(); } catch { }
   p = index().projects.find(it => it.path === dest) || null;
   if (!p) throw Object.assign(new Error('The film was created but NodeCut could not open it yet; press Rescan'), { code: 500 });
-  return { ...lite(p), route: routed };
+  // Creating a film is the start of the work, not the end of it. The brief on disk is what the agent builds from, so the
+  // first turn is sent here rather than waiting for someone to type "go". A failure to start is reported, never swallowed:
+  // a film that looks created and is silently doing nothing is the worst outcome for the person who just described it.
+  const started = startFilm(p.id, p.path);
+  return { ...lite(p), route: routed, started };
+});
+
+// startFilm(projectId, folder) -> { started, error? }. The opening turn of a brand-new film.
+// Kept in one place so the route and the retry endpoint cannot drift apart: the same words open the same film twice.
+// The brief is not passed as an argument: it is on disk in BRIEF.md, and the prompt tells the agent to read it there,
+// so there is exactly one copy of what the film is for.
+function startFilm(id, folder) {
+  const first = [
+    'Make this film, start to finish.',
+    '',
+    'The brief is in BRIEF.md and the team files it routed to are listed there. Read the brief and those files first, then',
+    'work in this order:',
+    '',
+    '1. Fill in the plan (hub_plan) so every beat has a time and a reason.',
+    '2. Build the film as code, so every frame is a pure function of t.',
+    '3. Check it against the craft notes as you go, and fix what the checker refuses.',
+    '',
+    'Do not stop to ask me before starting. If something is genuinely missing from the brief, decide it the way the craft',
+    'notes would, say what you decided in your reply, and keep going.',
+  ].join('\n');
+  try {
+    const r = agent.start(id, folder, first, { onEvent: () => broadcast('agent', { id }) });
+    if (r.started) { broadcast('agent', { id }); return { started: true }; }
+    return { started: false, error: r.error || 'The agent did not start.' };
+  } catch (e) {
+    return { started: false, error: e.message || 'The agent did not start.' };
+  }
+}
+
+// POST /api/project/:id/agent/start-building — the same opening turn again, for a film whose agent never began (the hub
+// was restarted, or opencode was missing the first time). The new-film route returns `started: false` and the live page
+// offers this, so "nothing is happening" is a state the UI can fix rather than a dead end.
+route('POST', '/api/project/:id/agent/start-building', (req, url, { id }) => {
+  const p = project(id); if (!p) throw Object.assign(new Error('Project not found'), { code: 404 });
+  const r = startFilm(id, p.path);
+  if (!r.started) throw Object.assign(new Error(r.error), { code: 400 });
+  return agent.state(id, p.path);
 });
 // ---- the Agent tab: run opencode in this film's folder and stream what it does -------------------------------
 // A run is one agent turn. It is per film and one at a time: two turns in one folder would both edit film.js.
 route('GET', '/api/project/:id/agent', (req, url, { id }) => {
   const p = project(id); if (!p) throw Object.assign(new Error('Project not found'), { code: 404 });
-  return agent.state(id, p.path);
+  // hasBrief tells the tab whether this film was made from a brief and has never been built. That is the one case where
+  // an idle agent means "the work never started" rather than "the work is finished", and the tab offers to start it.
+  const b = readBrief(p.path);
+  return { ...agent.state(id, p.path), hasBrief: !!(b && b.brief) };
 });
 route('GET', '/api/agent/models', async () => ({ models: await agent.listModels(), default: (config().agentDefaultModel || null) }));
 route('POST', '/api/project/:id/agent', async (req, url, { id }) => {
