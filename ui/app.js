@@ -817,13 +817,14 @@ function generationPanel() {
     };
     const kDeep = keyRow('DeepInfra key (stills)', 'DEEPINFRA_API_KEY');
     const kOpen = keyRow('OpenRouter key (clips)', 'OPENROUTER_API_KEY');
+    const kEleven = keyRow('ElevenLabs key (voice, music, sound effects)', 'ELEVENLABS_API_KEY');
     const cap = h('input', { type: 'number', step: '0.5', min: '0', value: String(g.dailyCapUsd), style: { width: '100px' } });
     const res = h('select', {}, ['480p', '768p', '1080p', '2K'].map(v => h('option', { value: v, selected: g.resolution === v }, v)));
     const dur = h('input', { type: 'number', min: '1', max: '30', value: String(g.duration), style: { width: '80px' } });
     const on3 = h('input', { type: 'checkbox', checked: on });
     const save = async () => {
       const body = { enabled: on3.checked, dailyCapUsd: +cap.value || 0, resolution: res.value, duration: +dur.value || 5, keys: {} };
-      for (const [inp, name] of [[kDeep.querySelector('input'), 'DEEPINFRA_API_KEY'], [kOpen.querySelector('input'), 'OPENROUTER_API_KEY']]) if (inp.value.trim()) body.keys[name] = inp.value.trim();
+      for (const [inp, name] of [[kDeep.querySelector('input'), 'DEEPINFRA_API_KEY'], [kOpen.querySelector('input'), 'OPENROUTER_API_KEY'], [kEleven.querySelector('input'), 'ELEVENLABS_API_KEY']]) if (inp.value.trim()) body.keys[name] = inp.value.trim();
       try { const saved = await api('/api/gen/config', { method: 'POST', body }); draw(saved); toast(saved.enabled ? 'Generation is on' : 'Generation is off'); }
       catch (e) { toast('Could not save: ' + e.message, true); }
     };
@@ -831,7 +832,7 @@ function generationPanel() {
       h('p', { class: 'sub' }, 'Let a model make new plates and clips for a film. It never changes what is already in the film: everything it makes is added to the film\'s gen/ folder and stays there until you remove it. Off by default, and nothing is sent anywhere until you press Generate on a film.'),
       h('div', { class: 'row', style: { margin: '8px 0' } }, h('label', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, on3, h('b', {}, 'Use models to generate media')),
         h('span', { class: 'dim', style: { fontSize: '12px' } }, on ? 'on' : 'off')),
-      kDeep, kOpen,
+      kDeep, kOpen, kEleven,
       h('div', { class: 'row', style: { margin: '6px 0' } }, h('span', { style: { width: '220px' } }, 'Daily spend cap (USD)'), cap,
         h('span', { class: 'dim', style: { fontSize: '12px' } }, 'a job that would pass it is refused, not just warned about')),
       h('div', { class: 'row', style: { margin: '6px 0' } }, h('span', { style: { width: '220px' } }, 'Clip resolution and length'), res, dur,

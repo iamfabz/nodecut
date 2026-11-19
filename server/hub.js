@@ -32,6 +32,7 @@ import * as tweaksApi from './tweaks.js';
 import * as contactSheet from './contactsheet.js';
 import * as gen from './gen.js';
 import * as genapi from './genapi.js';
+import * as elevenlabs from './elevenlabs.js';
 import { openFile } from './open-file.js';
 import { transcript } from './transcript.js';
 import { ramHogs } from './ramhogs.js';
@@ -470,6 +471,7 @@ jobs.routes(route, readBody);
 media.routes(route, allowedFile);
 contactSheet.routes(route, project, live, +(process.env.NODECUT_PORT || config().port || 7788));
 genapi.routes(route, project, readBody, +(process.env.NODECUT_PORT || config().port || 7788));
+elevenlabs.routes(route, project, readBody);
 gen.routes(route, project, readBody);   // after genapi: /api/gen/config is not a project id
 media.onProxy(ev => broadcast('proxy', ev));
 notesApi.onNote(ev => broadcast('note', ev));
