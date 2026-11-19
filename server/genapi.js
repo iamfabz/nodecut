@@ -29,10 +29,12 @@ export function plateBody({ prompt, model, size = '1024x1024', n = 1 }) {
 // a moving clip out. Ascpect is explicit because a model otherwise guesses and a film has a fixed shape.
 export function clipBody({ prompt, model, imageUrl, duration = 5, resolution = '480p', aspect = '16:9', seed }) {
   if (!model) throw Object.assign(new Error('a video model is required'), { code: 400 });
-  if (!imageUrl) throw Object.assign(new Error('the clip needs a starting still'), { code: 400 });
+  // imageUrl is optional: a text-to-video model starts from the words alone and rejects frame_images, while an
+  // image-to-video model needs one. Requiring it unconditionally is what made "make this shot from a description"
+  // impossible — there was no tool for it, and the clip tool demanded a still the user never had.
   const body = { model, prompt: String(prompt || '').trim().slice(0, 2000) || undefined, duration: +duration, resolution, aspect_ratio: aspect };
   if (seed != null && Number.isFinite(+seed)) body.seed = +seed;
-  body.frame_images = [{ type: 'image_url', image_url: { url: imageUrl }, frame_type: 'first_frame' }];
+  if (imageUrl) body.frame_images = [{ type: 'image_url', image_url: { url: imageUrl }, frame_type: 'first_frame' }];
   return body;
 }
 
@@ -106,12 +108,15 @@ export async function makeClip(p, { prompt, plateId, plateFile, model = genSetti
   if (!s.enabled) throw Object.assign(new Error('Generation is off. Turn it on in Settings > Generation.'), { code: 403 });
   const key = keyOf('OPENROUTER_API_KEY');
   if (!key) throw Object.assign(new Error('No OpenRouter API key. Add one in Settings > Generation.'), { code: 403 });
-  const still = plateFile || (plateId && get(p, plateId)?.file);
-  if (!still) throw Object.assign(new Error('Say which still the clip starts from'), { code: 400 });
-  const abs = path.join(p.path, still);
-  if (!fs.existsSync(abs)) throw Object.assign(new Error(`the still is missing: ${still}`), { code: 404 });
-  if (!tunnelUrl) throw Object.assign(new Error('the starting still is not reachable from the internet yet'), { code: 500 });
-  const body = clipBody({ prompt, model, imageUrl: tunnelUrl, duration, resolution, aspect });
+  // i2v has a still to start from; t2v does not, and then there is no still to publish either
+  const still = plateFile || (plateId && get(p, plateId)?.file) || null;
+  if (plateId && !still) throw Object.assign(new Error(`no still with id ${plateId} in this film`), { code: 404 });
+  if (still) {
+    const abs = path.join(p.path, still);
+    if (!fs.existsSync(abs)) throw Object.assign(new Error(`the still is missing: ${still}`), { code: 404 });
+    if (!tunnelUrl) throw Object.assign(new Error('the starting still is not reachable from the internet yet'), { code: 500 });
+  }
+  const body = clipBody({ prompt, model, imageUrl: still ? tunnelUrl : null, duration, resolution, aspect });
   const r = await fetch(OPENROUTER_VIDEOS, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(60000) });
   const text = await r.text();
   if (!r.ok) throw Object.assign(new Error(`OpenRouter said ${r.status}: ${text.slice(0, 300)}`), { code: 400 });
