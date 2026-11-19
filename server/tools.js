@@ -171,7 +171,18 @@ export const TOOLS = {
       const p = await resolve(a.project);
       const cfg = await call('GET', '/api/gen/config');
       if (!cfg.enabled) return 'Generation is off. Ask the user to switch it on in NodeCut > Settings > Generation.';
-      const r = await call('POST', `/api/gen/${p.id}/clip`, { plateId: a.plateId || null, prompt: a.prompt, duration: a.duration, resolution: a.resolution, aspect: a.aspect, model: a.model }, 180e3);
+      // No still means text-to-video, and that goes to DeepInfra's cheap model rather than the OpenRouter queue: about two
+      // cents for five seconds and back in a few seconds, so a shot can be tried and thrown away. A still means the
+      // existing image-to-video path, which is the only one that can animate a specific picture.
+      if (!a.plateId) {
+        const t = await call('POST', `/api/gen/${p.id}/t2v`, { prompt: a.prompt, resolution: a.resolution, orientation: /9:16/.test(a.aspect || '') ? 'portrait' : 'landscape' }, 300e3);
+        return [
+          `Made a clip from text for "${p.title}": asset ${t.id}, 5s at ${t.resolution}, $${(+t.cost || 0).toFixed(4)}.`,
+          `It is on disk now (${t.file}) and drawn like any other clip — GEN.get('${t.id}') in film.js.`,
+          'It is a five-second shot; if the beat is longer, split it across more than one clip rather than stretching one.',
+        ].join('\n');
+      }
+      const r = await call('POST', `/api/gen/${p.id}/clip`, { plateId: a.plateId, prompt: a.prompt, duration: a.duration, resolution: a.resolution, aspect: a.aspect, model: a.model }, 180e3);
       const how = a.plateId ? 'animating still ' + a.plateId : 'from text (no starting still)';
       return [
         `Submitted clip job ${r.jobId} for "${p.title}" — ${how}, ${r.model}, ${r.duration}s at ${r.resolution}, $${(+r.cost || 0).toFixed(2)}.`,

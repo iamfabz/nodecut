@@ -17,6 +17,12 @@ import { DATA_DIR } from './util.js';
 import { add, fail, get, newId, plateDir, clipDir, rel, bakeClip, readAtlas, place, PLATE_DIR, CLIP_DIR, ATLAS_DIR } from './gen.js';
 
 export const DEEPINFRA = 'https://api.deepinfra.com/v1/openai/images/generations';
+// DeepInfra's video models are on the inference endpoint, not the OpenAI-shaped one, and they answer with the mp4 inline
+// as a data: URL. FastWan is the cheapest 720p text-to-video they list: $0.0225 per five-second clip, roughly a tenth of
+// what the OpenRouter video models cost for the same length, and it renders in a few seconds rather than minutes.
+export const DEEPINFRA_INFER = 'https://api.deepinfra.com/v1/inference/';
+export const T2V_MODEL = 'FastVideo/FastWan2.2-TI2V-5B-FullAttn-Diffusers';
+export const T2V_COST = 0.0225;   // per 5s clip at 720p as listed; 480p is half
 export const OPENROUTER_VIDEOS = 'https://openrouter.ai/api/v1/videos';
 
 // The two endpoints, pinned here so a test can check the shape without a key and a change in the API is one edit.
@@ -78,6 +84,72 @@ export async function makePlate(p, { prompt, model = genSettings().t2iModel, siz
   const file = rel(PLATE_DIR, id + '.png');
   fs.writeFileSync(path.join(p.path, file), buf);
   const rec = { id, kind: 'plate', state: 'ready', file, name: body.prompt.slice(0, 60), prompt: body.prompt, source: 'model', provider: 'deepinfra', model, cost: null };
+  add(p, rec);
+  return rec;
+}
+
+// ---- t2v on DeepInfra: one request, the mp4 comes back inline -----------------------------------------------
+// Cheapest 720p text-to-video DeepInfra lists, and the one the studio defaults to: a five-second clip costs about two
+// cents and lands in a few seconds, so a beat can be tried and thrown away without a budget conversation.
+// The body is plain data so the shape can be asserted without spending anything.
+export function t2vBody({ prompt, resolution = '720p', orientation = 'landscape', seed }) {
+  const text = String(prompt || '').trim();
+  if (!text) throw Object.assign(new Error('Describe the shot: the model has no still to look at.'), { code: 400 });
+  const body = { prompt: text.slice(0, 2000), seconds: 5, resolution: resolution === '480p' ? '480p' : '720p', orientation: orientation === 'portrait' ? 'portrait' : 'landscape' };
+  // the model takes a seed for repeatable output, and only when there is one: absent is not the same as 0
+  if (seed != null && Number.isFinite(+seed)) body.seed = +seed;
+  return body;
+}
+
+// t2vCost(resolution) -> what this clip will cost, from the published price rather than a guess
+export const t2vCost = (resolution = '720p') => resolution === '480p' ? T2V_COST / 2 : T2V_COST;
+
+// makeT2V(p, { prompt, resolution, orientation, seed }) -> the asset record, with the mp4 already on disk.
+// Synchronous from the caller's point of view: a five-second clip takes a few seconds, so there is no job to poll and
+// nothing to leave running if the window closes.
+export async function makeT2V(p, { prompt, resolution = '720p', orientation = 'landscape', seed, model = T2V_MODEL } = {}) {
+  const s = genSettings();
+  if (!s.enabled) throw Object.assign(new Error('Generation is off. Turn it on in Settings > Generation.'), { code: 403 });
+  const key = keyOf('DEEPINFRA_API_KEY');
+  if (!key) throw Object.assign(new Error('No DeepInfra API key. Add one in Settings > Generation.'), { code: 403 });
+  const body = t2vBody({ prompt, resolution, orientation, seed });
+  const cost = t2vCost(body.resolution);
+  checkBudget(p, cost);
+
+  const r = await fetch(DEEPINFRA_INFER + model, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    // a five-second clip lands in seconds; this is generous so a slow queue is not mistaken for a failure
+    signal: AbortSignal.timeout(300000),
+  });
+  const text = await r.text();
+  if (!r.ok) throw Object.assign(new Error(`DeepInfra said ${r.status}: ${text.slice(0, 300)}`), { code: 400 });
+  let j; try { j = JSON.parse(text); } catch { throw Object.assign(new Error('DeepInfra returned something that is not JSON'), { code: 400 }); }
+  const url = j?.video_url;
+  if (!url) throw Object.assign(new Error('DeepInfra returned no video'), { code: 400 });
+  // the mp4 arrives inline as a data: URL; a plain http url is also accepted in case that changes
+  let buf;
+  if (/^data:/i.test(url)) {
+    const comma = url.indexOf(',');
+    if (comma < 0) throw Object.assign(new Error('DeepInfra returned a data URL with no payload'), { code: 502 });
+    buf = Buffer.from(url.slice(comma + 1), 'base64');
+  } else {
+    const dl = await fetch(url, { signal: AbortSignal.timeout(120000) });
+    if (!dl.ok) throw Object.assign(new Error(`the clip exists but could not be downloaded (${dl.status})`), { code: 502 });
+    buf = Buffer.from(await dl.arrayBuffer());
+  }
+  if (!buf.length) throw Object.assign(new Error('DeepInfra returned an empty video'), { code: 502 });
+
+  const id = newId();
+  fs.mkdirSync(clipDir(p), { recursive: true });
+  const file = rel(CLIP_DIR, id + '.mp4');
+  fs.writeFileSync(path.join(p.path, file), buf);
+  const rec = {
+    id, kind: 'clip', state: 'ready', file, name: String(body.prompt).slice(0, 60), prompt: body.prompt,
+    source: 'model', provider: 'deepinfra', model, resolution: body.resolution, duration: 5, cost,
+    billed: j?.inference_status?.cost ?? null, from: 'text',
+  };
   add(p, rec);
   return rec;
 }
@@ -272,6 +344,14 @@ export function routes(route, project, readBody, port) {
   });
 
   // still -> a video job. The tunnel is up only while the submit is in flight.
+  // text-to-video on DeepInfra: cheap, a few seconds, so it answers directly instead of handing back a job id
+  route('POST', '/api/gen/:id/t2v', async (req, url, { id }) => {
+    const p = need(id), body = await readBody(req);
+    const rec = await makeT2V(p, {
+      prompt: body.prompt, resolution: body.resolution, orientation: body.orientation, seed: body.seed, model: body.model,
+    });
+    return { ...rec, note: `Made a 5s ${rec.resolution} clip from text for $${(+rec.cost || 0).toFixed(4)}.` };
+  });
   route('POST', '/api/gen/:id/clip', async (req, url, { id }) => {
     const p = need(id), body = await readBody(req);
     const s = genSettings();
