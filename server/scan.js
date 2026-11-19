@@ -8,7 +8,7 @@ import { config, DEFAULT_SKIP_FOLDERS } from './config.js';
 import { outputsDir } from './ciktilar-dir.js';
 import { invalidateSource } from './source-revision.js';
 import { readNotes, readMeta, isOpenNote } from './legacy.js';
-import { DATA_DIR, idOf, readJson, writeJson, probe, flushProbeCache, fingerprint, pLimit, shortPath, run, TOOLS, now } from './util.js';
+import { DATA_DIR, idOf, readJson, readVersionList, writeJson, probe, flushProbeCache, fingerprint, pLimit, shortPath, run, TOOLS, now } from './util.js';
 
 const VIDEO = /\.(mp4|mov|webm|mkv)$/i, IMAGE = /\.(jpe?g|png|webp)$/i, AUDIO = /\.(wav|mp3|m4a|flac|aac|ogg)$/i;
 const SKIP_DIRS = new Set(['node_modules', '.git', '.nodecut-trash']);
@@ -154,7 +154,7 @@ async function describe(project) {
   }
   const meta = readMeta(path.join(project.path, '.nodecut', 'project.json'), {});
   const notes = readNotes(path.join(project.path, '.nodecut', 'notes.json'));
-  const versions = readJson(path.join(project.path, '.nodecut', 'versions.json'), []);
+  const versions = readVersionList(path.join(project.path, '.nodecut', 'versions.json'));
   // the film's length: render manifest, the saved DUR, or the longest voiced video
   const vByRel = new Map(versions.filter(v => v.file).map(v => [casePath(v.file), v.v || 0]));
   const filmDur = Math.max(0, +readJson(path.join(project.outDir || project.path, 'render', 'manifest.json'))?.dur || 0, +meta.render?.env?.DUR || 0,

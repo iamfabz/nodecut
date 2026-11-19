@@ -12,7 +12,7 @@ import { project, rescanProject } from './scan.js';
 import { guardState, guardTrack, guardUntrack } from './guard.js';
 import { ramHogsNow, ramNote } from './ramhogs.js';
 import { vhDir, list as listNotes, update as updateNote } from './notes.js';
-import { DATA_DIR, HUB_DIR, readJson, writeJson, run, TOOLS, now, pLimit, refersToHub, isInside } from './util.js';
+import { DATA_DIR, HUB_DIR, readJson, readVersionList, writeJson, run, TOOLS, now, pLimit, refersToHub, isInside } from './util.js';
 import { audioOf } from './live.js';
 import { ENCODERS, LABELS, PROBE_ORDER, encoderEnv } from './encoders.js';
 import { killTree, shellCommand, renderSpawnOptions, findBrowser } from './platform.js';
@@ -222,7 +222,7 @@ async function runJob(job) {
   const browser = findBrowser().path;
   const env = { FFMPEG: TOOLS.ffmpeg, FFPROBE: TOOLS.ffprobe, NODECUT_ENCODER_ORDER: PROBE_ORDER.join(','), ...process.env, ...(browser ? { NODECUT_BROWSER: browser } : {}), ...(job.workers ? { WK: String(job.workers) } : {}), ...encoderEnv(job.env, config().render?.encoder), ...job.env, NODECUT_JOB: job.id, NODECUT_DIR: HUB_DIR };
   if (!browser && !Object.hasOwn(job.env, 'NODECUT_BROWSER')) delete env.NODECUT_BROWSER;
-  const versions = readJson(path.join(vhDir(p), 'versions.json'), []);
+  const versions = readVersionList(path.join(vhDir(p), 'versions.json'));
   const vN = Math.max(versions.reduce((m, v) => Math.max(m, v.v || 0), 0), maxNameVersion(p)) + 1;
 
   if (job.mode === 'command') {
@@ -405,7 +405,7 @@ export function editedMix(p) {
 async function register(p, job, file, vN, changedRanges, kind = 'final') {
   assertActive(job);
   if (!fs.existsSync(file)) throw new Error('Output missing: ' + file);
-  const vf = path.join(vhDir(p), 'versions.json'), versions = readJson(vf, []);
+  const vf = path.join(vhDir(p), 'versions.json'), versions = readVersionList(vf);
   const prevFinal = lastFilm(p);
   const entry = { v: vN, file: relOf(p, file), kind, created: now(), job: job.id, mode: job.mode, session: job.session, parent: prevFinal?.rel || null, changedRanges, chunks: job.chunks || null, notes: job.notes || [], note: job.note || null };
   versions.push(entry); writeJson(vf, versions);
@@ -483,7 +483,7 @@ async function renderInfo(p) {
   const out = (p.outputs || []).find(o => o.rel === p.latest) || (p.outputs || []).find(o => o.role === 'final');
   let w = out?.w || null, h = out?.h || null, dur = +rc.env.DUR || out?.dur || null;
   if (!w || !dur) { try { const li = await (await import('./live.js')).liveInfo(p); if (li.ok) { w = w || li.w; h = h || li.h; dur = dur || li.dur; } } catch { } }
-  const versions = readJson(path.join(vhDir(p), 'versions.json'), []);
+  const versions = readVersionList(path.join(vhDir(p), 'versions.json'));
   const vN = Math.max(versions.reduce((m, v) => Math.max(m, v.v || 0), 0), maxNameVersion(p)) + 1;
   const done = jobs.filter(j => j.project === p.id && j.state === 'done' && j.durationSec).reverse();
   const lastFull = done.find(j => j.mode === 'full'), lastPart = done.find(j => j.mode === 'partial' && j.chunks?.length);
@@ -514,7 +514,7 @@ export function routes(route, readBody) {
   route('GET', '/api/project/:id/recipe', async (req, url, { id }) => { const p = project(id); if (!p) throw Object.assign(new Error('Project not found'), { code: 404 }); return recipe(p); });
   route('POST', '/api/project/:id/version', async (req, url, { id }) => {
     const p = project(id); if (!p) throw Object.assign(new Error('Project not found'), { code: 404 });
-    const b = await readBody(req), versions = readJson(path.join(vhDir(p), 'versions.json'), []);
+    const b = await readBody(req), versions = readVersionList(path.join(vhDir(p), 'versions.json'));
     if (typeof b.file !== 'string' || !b.file) throw Object.assign(new Error('file is required'), { code: 400 });
     const file = path.resolve(p.path, b.file);
     if (!isInside(file, p.path) && !(p.studio && p.outDir && isInside(file, p.outDir))) throw Object.assign(new Error('The file must be inside the project folder'), { code: 400 });

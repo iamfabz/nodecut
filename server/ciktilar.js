@@ -16,7 +16,7 @@ import { index } from './scan.js';
 import { recyclePaths } from './janitor.js';
 import { vhDir } from './notes.js';
 import { outputsDir } from './ciktilar-dir.js';
-import { DATA_DIR, readJson, writeJson, isInside, norm } from './util.js';
+import { DATA_DIR, readJson, readVersionList, writeJson, isInside, norm } from './util.js';
 
 const IDX = path.join(DATA_DIR, 'ciktilar.json');
 let idx = null;
@@ -88,7 +88,7 @@ export function sync() {
     const o = (p.outputs || []).find((x) => x.rel === p.latest);
     if (!o || o.role !== 'final') continue;
     if (load()[key(o.path)]) continue;
-    let v = null; try { v = (readJson(path.join(vhDir(p), 'versions.json'), []).find((x) => x.file === o.rel) || {}).v || null; } catch { }
+    let v = null; try { v = (readVersionList(path.join(vhDir(p), 'versions.json')).find((x) => x.file === o.rel) || {}).v || null; } catch { }
     if (!v) { const m = /_v(\d+)(?:[_.]|$)/i.exec(o.name); v = m ? +m[1] : null; }
     if (linkOutput(o.path, { title: p.title || p.name, v, when: o.mtime })) n++;
   }

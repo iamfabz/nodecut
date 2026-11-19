@@ -12,7 +12,7 @@ import { index, project } from './scan.js';
 import * as jobs from './jobs.js';
 import { guardHistory } from './guard.js';
 import { vhDir } from './notes.js';
-import { DATA_DIR, DESKTOP, HOME, readJson, writeJson, refersToHub, norm } from './util.js';
+import { DATA_DIR, DESKTOP, HOME, readJson, readVersionList, writeJson, refersToHub, norm } from './util.js';
 // RenderGuard writes a render's folder shortened (relative to the Desktop, or ~\ for the home folder): back to a full path
 const guardPath = s => !s ? '' : s.startsWith('~') ? path.join(HOME, s.replace(/^~[\\/]*/, '')) : path.isAbsolute(s) ? s : path.join(DESKTOP, s);
 
@@ -45,7 +45,7 @@ function collect() {
   }
   // 2. versions registered by chats (and by the queue: merged by file)
   for (const p of projects) {
-    let vs = []; try { vs = readJson(path.join(vhDir(p), 'versions.json'), []); } catch { }
+    let vs = []; try { vs = readVersionList(path.join(vhDir(p), 'versions.json')); } catch { }
     for (const v of vs) {
       if (!v?.file) continue;
       const o = (p.outputs || []).find((x) => x.rel === v.file);

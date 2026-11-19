@@ -37,6 +37,9 @@ function harness(platform = {}) {
     process: { env: {} }, setTimeout: fn => { timers.push(fn); return timers.length; },
     readJson: (file, fallback) => file.endsWith('project.json') ? { render: { workers } }
       : file.endsWith('manifest.json') ? { dur: 2, fps: 60, chunkFrames: 120, chunkSec: 2 } : fallback,
+    // versions.json is read through the tolerant reader, so the double has to provide it: without it the real one is
+    // undefined inside the VM and every job throws before it spawns. It stays consistent with the readJson double above.
+    readVersionList: file => { const j = file.endsWith('project.json') ? { render: { workers } } : (file.endsWith('manifest.json') ? { dur: 2 } : []); return Array.isArray(j) ? j : (Array.isArray(j?.versions) ? j.versions : []); },
     writeJson() {}, config: () => ({ maxParallelRenders: maxParallel, render: { encoder } }), ENCODERS, LABELS, PROBE_ORDER, encoderEnv, project: id => projects.get(id),
     guardState: () => guard, guardTrack: () => { }, guardUntrack: () => { }, ramHogsNow: async () => [], ramNote: () => null,
     vhDir: p => path.join(p.path, '.nodecut'), listNotes: () => [], updateNote() {},

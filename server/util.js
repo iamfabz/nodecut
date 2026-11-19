@@ -59,6 +59,19 @@ export const shortPath = p => (isInside(p, DESKTOP) ? path.relative(DESKTOP, p) 
 export function readJson(file, fallback = null) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); } catch { return fallback; }
 }
+// readVersionList(file) -> always an array. versions.json is written by NodeCut as a plain array, but an agent driving the
+// studio through the MCP tools (or a hand-edited file) can write the same data inside a `{ v, versions }` envelope. That
+// one shape used to crash the whole folder scan with "versions.filter is not a function", which took every film down with
+// it, so every reader goes through here and no format can break a scan.
+// Tolerant of a bad path too: the callers used to pass the result of readJson, which returns its fallback rather than
+// throwing, and a reader that throws where the old one did not would break callers that rely on that.
+export function readVersionList(file) {
+  if (typeof file !== 'string' || !file) return [];
+  const j = readJson(file, []);
+  if (Array.isArray(j)) return j;
+  if (j && Array.isArray(j.versions)) return j.versions;
+  return [];
+}
 // write via a temp file so readers never see half a file
 export function writeJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
