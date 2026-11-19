@@ -7,7 +7,7 @@ import path from 'node:path';
 import { project, setNoteCounts } from './scan.js';
 import { spokenAt } from './transcript.js';
 import { readNotes, NOTE_STATUSES, NOTE_KINDS, noteStatus, noteKind, byWho, isOpenNote } from './legacy.js';
-import { DATA_DIR, readJson, writeJson, now, run, TOOLS, isInside } from './util.js';
+import { DATA_DIR, readJson, readVersionList, writeJson, now, run, TOOLS, isInside } from './util.js';
 
 export const STATUSES = NOTE_STATUSES;
 export const KINDS = NOTE_KINDS;
@@ -23,7 +23,7 @@ export const list = p => readNotes(notesFile(p)).map(n => {
   if (n.images) for (const [k, f] of Object.entries(n.images)) if (!f || !fs.existsSync(f)) delete n.images[k];   // removed from Disk page
   return n;
 });
-export const versions = p => readJson(path.join(vhDir(p), 'versions.json'), []);
+export const versions = p => readVersionList(path.join(vhDir(p), 'versions.json'));
 const save = (p, notes) => writeJson(notesFile(p), notes);
 
 // Pictures are cut after the answer, one job at a time for the whole hub (ffmpeg is heavy);
@@ -206,7 +206,7 @@ export function remove(p, id) {
 
 // notes written before the newest version (all notes when the project has no version yet)
 export function oldNotes(p) {
-  const versions = readJson(path.join(vhDir(p), 'versions.json'), []);
+  const versions = readVersionList(path.join(vhDir(p), 'versions.json'));
   const last = versions.reduce((m, v) => Math.max(m, Date.parse(v.created || 0) || 0), 0);
   return list(p).filter(n => !last || (Date.parse(n.createdAt || 0) || 0) < last);
 }
