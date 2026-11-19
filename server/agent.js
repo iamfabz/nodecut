@@ -15,7 +15,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-export const RUN_TIMEOUT_MS = 10 * 60 * 1000;
+// A run has no maximum length. A real film can take fifteen minutes, half an hour, or longer, and a fixed ceiling stops
+// work that was going perfectly well — which is a worse failure than a hung process.
+//
+// What it does have is a stall limit: if the agent produces nothing at all for STALL_MS, it is not slow, it is stuck — a
+// dead network, a credential that expired, a CLI waiting on a prompt that will never come. That is worth ending, and it
+// is a different event from "took a long time", so it says so in different words.
+// Override both with NODECUT_AGENT_STALL_MIN (minutes of silence) when a machine is genuinely slower than this.
+export const STALL_MS = Math.max(1, +process.env.NODECUT_AGENT_STALL_MIN || 20) * 60 * 1000;
+// Kept for anything that imports it; a run is no longer cut short by total duration.
+export const RUN_TIMEOUT_MS = Infinity;
 
 // How the Agent tab answers: short, plain, no jargon. This is a film review page, not a terminal — the person reading it
 // is deciding whether their video looks right, and a wall of technical text is noise. The preamble is re-sent every turn
@@ -272,6 +281,7 @@ export function killAll() {
 export function stop(projectId) {
   const r = runs.get(projectId);
   if (!r || r.status !== 'running') return { stopped: false };
+  clearTimeout(r.timer);   // stopping on purpose must not also trip the stall watchdog
   try { r.child.kill('SIGTERM'); } catch { }
   // a CLI that ignores SIGTERM (it can be mid-write) gets five seconds, then SIGKILL
   setTimeout(() => { try { r.child.kill('SIGKILL'); } catch { } }, 5000);
@@ -367,6 +377,7 @@ export function start(projectId, folder, message, { model = null, onEvent = null
     push(r, { kind: 'error', text: r.error });
   });
   child.on('close', (code) => {
+    clearTimeout(r.timer);   // the stall watchdog must not fire on a run that has already finished
     if (r.status === 'running') r.status = code === 0 && !r.error ? 'done' : (r.error ? 'failed' : 'done');
     // Keep what this run actually took, so the next estimate for this film is measured rather than guessed. Only runs
     // that ended on their own count: a stopped or cut-off run says nothing about how long the work really needs.
@@ -382,13 +393,22 @@ export function start(projectId, folder, message, { model = null, onEvent = null
     }
   });
 
-  r.timer = setTimeout(() => {
-    if (r.status !== 'running') return;
-    try { r.child.kill('SIGTERM'); } catch { }
-    r.status = 'timeout';
-    r.error = 'The agent ran for ' + Math.round(RUN_TIMEOUT_MS / 60000) + ' minutes and was stopped.';
-    push(r, { kind: 'error', text: r.error });
-  }, RUN_TIMEOUT_MS);
+  // A stall watchdog, not a deadline. Every sign of life resets it; only silence ends the run. The message names the
+  // real cause so the next person does not read it as "your film is too long".
+  const armStall = () => {
+    clearTimeout(r.timer);
+    r.timer = setTimeout(() => {
+      if (r.status !== 'running') return;
+      try { r.child.kill('SIGTERM'); } catch { }
+      r.status = 'timeout';
+      r.error = `The agent stopped responding: nothing for ${Math.round(STALL_MS / 60000)} minutes. It was not cut short for taking too long — it went quiet, which usually means the network dropped or a sign-in expired. Press Send to carry on from here.`;
+      push(r, { kind: 'error', text: r.error });
+    }, STALL_MS);
+  };
+  armStall();
+  // every chunk of stdout, every line of stderr and every tool step counts as life
+  child.stdout.on('data', armStall);
+  child.stderr.on('data', armStall);
 
   return { started: true };
 }
