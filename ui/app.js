@@ -312,8 +312,10 @@ const state ={ q: '', status: '', family: '', root: '', sort: 'updated' };
 async function projectsPage(page) {
   const data = await api('/api/projects');
   const ps = data.projects;
-  // New film: copies the starter into the films folder, then opens its live preview. Creating the folder is all NodeCut
-  // does — the film itself is written as code by the agent afterwards, so the button is a head start, not a wizard.
+  // New film: copies the starter into the films folder, then opens its live preview. Creating the film also sends the
+  // first turn to the agent, because a film that only exists as an empty folder is not what the person asked for — they
+  // described a film they want to watch. If the agent could not start, the live page can start it again from the button
+  // the agent panel shows, so this is a hand-off, not a dead end.
   const newFilm = async () => {
     const got = await newFilmBox({
       existing: ps.map(p => p.title),
@@ -323,8 +325,14 @@ async function projectsPage(page) {
     try {
       const p = await api('/api/projects/new', { method: 'POST', body: { name: got.name, brief: got.brief } });
       const r = p.route;
-      toast(`Created "${p.title}"` + (r ? ` · ${r.pipeline} · ${r.files.length} team files picked` : ''));
-      location.hash = `#/review/${p.id}/~live`;   // straight into the preview: nothing to render yet, watch it live
+      const began = p.started && p.started.started;
+      const why = p.started && p.started.error ? ` · ${p.started.error}` : '';
+      toast(
+        began ? `Building "${p.title}" — the agent is working on it now`
+        : `Created "${p.title}" but the agent did not start${why}`,
+        !began,
+      );
+      location.hash = `#/review/${p.id}/~live`;   // straight into the preview: the film is being written as you watch
     } catch (e) { toast('Could not create the film: ' + e.message, true); }
   };
   // toolbar: title, then icon-only utilities (Refresh / Outputs folder) so the row reads as one control group
