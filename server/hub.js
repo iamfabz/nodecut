@@ -540,12 +540,21 @@ async function alwaysOn() {
 }
 setInterval(async () => {
   const g = guardState();
-  if (clients.size || jobs.busy() || cleanStatus()?.state === 'running' || notesApi.busyPictures() || media.makingCopies() || index().scanning || (!GUARD_OFF && g.running && (g.renders || []).length)) { lastUse = Date.now(); return; }
+  // agent.busy() is part of "in use", not an afterthought: an agent writing a film is work the user asked for, and it
+  // takes far longer than the idle window. Closing the hub here kills the child process with it, and because the
+  // transcript is only saved when that process exits, the run leaves nothing behind at all — the same failure as a
+  // crash, from a timer that thought the app was unused.
+  if (clients.size || agent.busy() || jobs.busy() || cleanStatus()?.state === 'running' || notesApi.busyPictures() || media.makingCopies() || index().scanning || (!GUARD_OFF && g.running && (g.renders || []).length)) { lastUse = Date.now(); return; }
   if (Date.now() - lastUse < IDLE_MS || await alwaysOn()) return;
   console.log('NodeCut: not in use, closing together with the render protection.');
   if (!GUARD_OFF) await quitGuard().catch(() => { });
+  agent.killAll();
   process.exit(0);
 }, 20e3).unref();
+// A hub that is killed by Ctrl-C or by the terminal closing must take its agent children with it, or they are reparented
+// to PID 1 and keep writing to a film with nobody watching. Same on the ordinary exit path.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { agent.killAll(); process.exit(0); });
+process.on('exit', () => { try { agent.killAll(); } catch { } });
 // "Start with Windows" (node scripts/install.mjs open --server at log-in): the hub stays on, so the render protection runs from the start
 if (!GUARD_OFF) alwaysOn().then(on => { if (on) ensureGuard().catch(() => { }); }).catch(() => { });
 
