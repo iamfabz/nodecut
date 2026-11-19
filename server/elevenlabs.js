@@ -34,6 +34,10 @@ export function safeName(text, fallback = 'take') {
   return s || fallback;
 }
 
+// The output format is deliberately NOT pinned. ElevenLabs only allows some formats on some plans — mp3_44100_192 is
+// Creator tier and above, and asking for it on a smaller plan fails with a 403 that reads like a broken key. Omitting the
+// query parameter gets whatever the account is entitled to, which is always something that works.
+//
 // The three requests, as data. Kept as pure functions so the body that goes on the wire can be asserted without a network
 // call — the same approach the generation tests already use.
 export function voiceoverRequest({ text, voiceId, modelId = 'eleven_multilingual_v2', stability = 0.5, similarity = 0.75 }) {
