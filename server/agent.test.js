@@ -209,3 +209,17 @@ test('fmtDur: short and readable', () => {
   assert.equal(fmtDur(300_000), '5 min');
   assert.equal(fmtDur(3_600_000), '60 min');
 });
+
+// --- a run has no maximum length, only a stall limit --------------------------------------------------------------
+// A film can genuinely take twenty minutes. Stopping it for taking long enough is stopping work that was going
+// perfectly well, so the only thing that ends a silent run is silence.
+import { RUN_TIMEOUT_MS, STALL_MS } from './agent.js';
+
+test('a run is not cut short by total duration', () => {
+  assert.equal(RUN_TIMEOUT_MS, Infinity, 'no fixed ceiling: a long film must not be killed for being long');
+});
+
+test('the stall limit is generous and configurable', () => {
+  // default twenty minutes of total silence, which is stuck rather than slow
+  assert.ok(STALL_MS >= 20 * 60 * 1000, 'the default stall limit should be at least 20 minutes');
+});

@@ -162,7 +162,7 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
   el.append(stalled, log, row, controls, status);
 
   const label = (st) => ({
-    idle: 'Ready', running: 'Working…', done: 'Done', failed: 'Failed', stopped: 'Stopped', timeout: 'Timed out',
+    idle: 'Ready', running: 'Working…', done: 'Done', failed: 'Failed', stopped: 'Stopped', timeout: 'Went quiet',
   }[st] || st);
 
   function renderLog() {
