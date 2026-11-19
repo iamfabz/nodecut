@@ -6,6 +6,28 @@ good first projects.
 
 Everything below is open work. Nothing here is promised for a version or a date.
 
+## The headline
+
+Three features that change what NodeCut is. Today it starts from a plan and writes the film. These start from a
+**recording** — yours, a client's, or one you just shot on a phone — and take it to a finished film. That is a much
+bigger audience, and it is the direction the app is going.
+
+They are listed here in the order they make sense: you cannot polish footage you have not got in, and you cannot
+transcribe audio you have not captured.
+
+- [ ] **Record into the studio from another device.** Display a QR code, scan it with a phone, and shoot straight into
+      the project. Works for camera and for microphone. Local machine capture where a mic exists. See
+      [#13](https://github.com/iamfabz/nodecut/issues/13) for camera and
+      [#14](https://github.com/iamfabz/nodecut/issues/14) for audio.
+- [ ] **Ingest a finished recording and rebuild it as a film.** Take a video someone already shot, transcribe it, and
+      produce a NodeCut film that is the same content made well: tighter cuts, real typography, subtle motion, sound
+      that sits right. This is the biggest single feature on the roadmap and the most valuable. See
+      [#12](https://github.com/iamfabz/nodecut/issues/12).
+- [ ] **Transcribe anything that has audio.** The building block under both of the above, and useful on its own. Note
+      that NodeCut already *consumes* a transcript (`words.json` or an `.srt`, see `server/transcript.js`) to place
+      notes and sentence timings. What is missing is producing one from a media file without an API key. See
+      [#15](https://github.com/iamfabz/nodecut/issues/15).
+
 ## Nearby
 
 The next things worth doing, roughly in the order they make NodeCut better.
