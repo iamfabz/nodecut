@@ -27,8 +27,18 @@ test('genapi: the i2v body matches OpenRouter\'s documented shape (frame_images,
   // a seed is only sent when there is one: an absent key is not the same as 0
   assert.equal('seed' in b, false);
   assert.equal(clipBody({ model: 'm', imageUrl: 'u', seed: 0 }).seed, 0, 'seed 0 is a real seed');
-  assert.throws(() => clipBody({ model: 'm' }), /starting still/);
   assert.throws(() => clipBody({ imageUrl: 'u' }), /video model/);
+});
+
+test('genapi: without a still the body is text-to-video, and sends no frame at all', () => {
+  // Frame images are what a model ACCEPTS, not what it requires: Veo, Kling and Seedance all generate from words alone.
+  // Demanding a still is what made "make this shot from a description" impossible for an agent.
+  const b = clipBody({ prompt: 'a slow orbit around a glass cube on black', model: 'google/veo-3.1-fast', duration: 5, resolution: '720p' });
+  assert.equal('frame_images' in b, false, 'a frame image here would turn a text shot into a still animation');
+  assert.match(b.prompt, /glass cube/, 'the prompt is the whole shot, so it must survive intact');
+  assert.equal(b.model, 'google/veo-3.1-fast');
+  // and with a still, the frame is back
+  assert.ok(clipBody({ prompt: 'x', model: 'm', imageUrl: 'u' }).frame_images);
 });
 
 test('genapi: a heygen clip costs what the catalog says, and 1080p is five times 480p', () => {

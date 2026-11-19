@@ -157,11 +157,11 @@ export const TOOLS = {
     },
   },
   hub_generate_clip: {
-    description: 'Animate a still into a video clip with an image-to-video model (OpenRouter, heygen by default) and bake it into atlases the film can draw. Costs money per second and the price is shown by the tool before it submits. The job runs for minutes on OpenRouter, so this returns immediately with a job id; the clip lands in gen/ when it finishes and the live preview can draw it.',
+    description: 'Make a video clip and bake it into atlases the film can draw. Give plateId to animate an existing still (image-to-video); leave it out and describe the whole shot to generate it from text alone (text-to-video). Costs money per second and the price is shown before it submits. The job runs for minutes, so this returns immediately with an asset id; the clip lands in gen/ when it finishes.',
     schema: {
       project: z.string().optional().describe('Project folder, name or id. Default: the working folder.'),
-      plateId: z.string().describe('The still to animate: an id from hub_generate_plate or hub_gen_list.'),
-      prompt: z.string().describe('The motion: what moves, how the camera behaves, what happens.'),
+      plateId: z.string().optional().describe('Optional. The still to animate (image-to-video). Leave it out for text-to-video, where the prompt describes the whole shot.'),
+      prompt: z.string().describe('The shot. For image-to-video: the motion, camera and what happens. For text-to-video: the whole shot, since there is no still to look at.'),
       duration: z.number().optional().describe('Seconds (default from Settings, usually 5).'),
       resolution: z.string().optional().describe('480p (default, cheapest), 768p, 1080p, 2K. Price scales with it.'),
       aspect: z.string().optional().describe('16:9 for a landscape film, 9:16 for vertical.'),
@@ -171,9 +171,10 @@ export const TOOLS = {
       const p = await resolve(a.project);
       const cfg = await call('GET', '/api/gen/config');
       if (!cfg.enabled) return 'Generation is off. Ask the user to switch it on in NodeCut > Settings > Generation.';
-      const r = await call('POST', `/api/gen/${p.id}/clip`, { plateId: a.plateId, prompt: a.prompt, duration: a.duration, resolution: a.resolution, aspect: a.aspect, model: a.model }, 180e3);
+      const r = await call('POST', `/api/gen/${p.id}/clip`, { plateId: a.plateId || null, prompt: a.prompt, duration: a.duration, resolution: a.resolution, aspect: a.aspect, model: a.model }, 180e3);
+      const how = a.plateId ? 'animating still ' + a.plateId : 'from text (no starting still)';
       return [
-        `Submitted clip job ${r.jobId} for "${p.title}" — ${r.model}, ${r.duration}s at ${r.resolution}, $${(+r.cost || 0).toFixed(2)}.`,
+        `Submitted clip job ${r.jobId} for "${p.title}" — ${how}, ${r.model}, ${r.duration}s at ${r.resolution}, $${(+r.cost || 0).toFixed(2)}.`,
         `It runs for minutes on OpenRouter. Asset id ${r.id}; it lands in gen/clips/ and gen/atlas/ when it finishes (hub_gen_list shows the state).`,
         'Do not wait for it in this conversation: check hub_gen_list later, or keep working on the rest of the film.',
       ].join('\n');
