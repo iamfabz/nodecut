@@ -32,7 +32,7 @@ export function laneCount(clips, kind) {
 }
 
 // rows top → bottom; collapsed rows are 14 px; header = which controls the row will carry (P3c), null = none
-export function buildRows({ live, strip, scenes, transcript, layers, cues, clips, canClips, gen, collapsed }) {
+export function buildRows({ live, strip, scenes, transcript, layers, cues, clips, canClips, gen, collapsed, notesOff = false }) {
   const C = collapsed instanceof Set ? collapsed : new Set(collapsed || []), rows = [];
   const add = (id, kind, label, h, color, header = null, extra = {}) => rows.push({ id, kind, label, h: C.has(id) ? COLLAPSED_H : h, full: h, collapsed: C.has(id), color, header, ...extra });
   // Rows are roughly twice their old height. At 20-30 px each a lane was a line of text with a waveform squeezed
@@ -42,7 +42,9 @@ export function buildRows({ live, strip, scenes, transcript, layers, cues, clips
   if (!live && strip) add('pic', 'pic', 'Picture', 76, ROW_COLOR.pic);
   add('mix', 'mix', 'Film audio', 58, ROW_COLOR.mix, { mute: false, solo: false, level: true });
   if (scenes && scenes.length) add('scenes', 'scenes', 'Scenes', 54, ROW_COLOR.scenes);
-  add('notes', 'notes', 'Notes', 44, ROW_COLOR.notes);
+  // a hidden notes row is not built at all: collapsing leaves a strip behind, which is wrong for "hide" — there would
+  // be nothing left to click to bring them back except the eye on the Scene row
+  if (!notesOff) add('notes', 'notes', 'Notes', 44, ROW_COLOR.notes);
   if (transcript) add('text', 'text', 'Text', 46, ROW_COLOR.text);
   const L = layers || [];
   for (const l of L) {

@@ -19,7 +19,7 @@ import { theme } from './theme.js';
 const STATUS_COLOR = { 'open': '#e6c14d', 'claude': () => theme().accentPrimary, 'fixed': '#46c480', 'approved': '#3a7d58', 'reopened': '#e85454' };
 // entries are strings, or functions for colours that come from the live theme
 const statusColor = (st) => { const c = STATUS_COLOR[st] || STATUS_COLOR.open; return typeof c === 'function' ? c() : c; };
-const RULER = 24, ROWS_KEY = 'vh-tl-rows';
+const RULER = 24, ROWS_KEY = 'vh-tl-rows', NOTES_OFF_KEY = 'vh-tl-notes-off';
 const PLAY = () => theme().accentPrimary;   // the playhead is the accent: active, live, now
 const HINT = 'Ctrl+wheel: zoom · Shift+wheel: pan · wheel on ruler: zoom · double-click: whole film';
 // scene lane colours (cycled); a scene's set name keeps its colour when the film comes back to it
@@ -57,6 +57,9 @@ export function createTimeline(ctx) {
   let gen = [], genOps = null, genDrag = null, genHover = null;    // generated clips placed on the timeline (tweaks.json "gen")
   const layerImg = {}, peaks = new Map(), waveCache = new Map(), asked = new Set();
   let collapsed = new Set(ls.get(ROWS_KEY, []) || []), rows = [], H = 40, headEls = new Map();
+  // Notes can be hidden without collapsing the row: an eye toggle on the Notes row. A film being reviewed can carry
+  // dozens of them, and they cover the picture row's ticks and the scene lane. Remembered across visits, like the rows.
+  let notesOff = ls.get(NOTES_OFF_KEY, false) === true;
   const dur = () => ctx.dur() || 1;
   const V = createView({ dur });
   const v = () => V.get();
@@ -86,7 +89,7 @@ export function createTimeline(ctx) {
   function relayout(live = true) {   // live = false while being built: the caller's ctx (dur, time…) is not ready yet
     // an old clip without a lane gets one once (timestamp order); it is saved with it on the next real change
     if (clips) for (const c of clips.filter(q => !Number.isInteger(q.lane)).sort((p, q) => p.t - q.t)) c.lane = assignLane(clips, c, dur());
-    rows = buildRows({ live: !!ctx.live, strip, scenes, transcript: tr, layers, cues, clips, canClips: !!clips, gen, collapsed });
+    rows = buildRows({ live: !!ctx.live, strip, scenes, transcript: tr, layers, cues, clips, canClips: !!clips, gen, collapsed, notesOff });
     H = Math.max(20, rows.reduce((s, r) => s + r.h, 0));
     heads.innerHTML = ''; headEls = new Map();
     for (const r of rows) {
@@ -96,12 +99,26 @@ export function createTimeline(ctx) {
       const add = r.kind === 'clips' && clipOps?.pick && r.h >= 26 ? h('button', { class: 'tl2-hadd', title: r.clipKind === 'music' ? 'Add music (at the playhead)' : 'Add sound effect (at the playhead)', onclick: () => clipOps.pick(r.clipKind) }, '➕') : null;
       // P3c: M / S / level chip from the mixer (they update themselves); rows under 26 px have none
       const mx = mixer && r.header && r.h >= 26 ? mixer.controls(r.id) : null;
-      const hd = h('div', { class: 'tl2-head' + (r.collapsed ? ' coll' : '') + (r.h < 26 ? ' small' : ''), 'data-id': r.id }, name, add || mx ? h('span', { class: 'tl2-hside' }, add, mx) : null);
+      // The notes eye lives on the Scenes row, not the Notes row: hiding notes removes that row, so a control inside it
+      // would disappear with the thing it controls and there would be no way back short of clearing storage.
+      const eye = r.id === 'scenes' && r.h >= 26 ? h('button', {
+        class: 'tl2-heye' + (notesOff ? ' off' : ''), title: notesOff ? 'Show notes on the timeline' : 'Hide notes on the timeline',
+        'aria-pressed': notesOff ? 'true' : 'false', 'aria-label': notesOff ? 'Show notes' : 'Hide notes',
+        onclick: ev => { ev.stopPropagation(); toggleNotes(); },
+      }, notesOff ? '🚫' : '👁') : null;
+      const side = h('span', { class: 'tl2-hside' }, eye, add, mx);
+      const hd = h('div', { class: 'tl2-head' + (r.collapsed ? ' coll' : '') + (r.h < 26 ? ' small' : ''), 'data-id': r.id }, name, (eye || add || mx) ? side : null);
       hd.style.height = r.h + 'px'; hd.style.setProperty('--c', r.color);
       heads.append(hd); headEls.set(r.id, { el: hd, off: false });
     }
     waveCache.clear();
     if (live) size();
+  }
+  // hiding notes is a filter, not a collapse: the row goes away entirely and the picture row stops drawing its ticks
+  function toggleNotes() {
+    notesOff = !notesOff;
+    ls.set(NOTES_OFF_KEY, notesOff);
+    relayout();
   }
   function toggleRow(id) {
     collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id);
@@ -198,7 +215,8 @@ export function createTimeline(ctx) {
     const K = keys(); if (K.length === 2) { g.fillStyle = ctx.loopOn() ? 'rgba(230,193,77,.16)' : 'rgba(230,193,77,.08)'; g.fillRect(K[0].x, y, Math.max(1, K[1].x - K[0].x), hh); }
     scenes.forEach((sc, i) => { if (!i) return; const x = tx(sc.t0); if (x > 0 && x < w) { g.fillStyle = 'rgba(255,255,255,.55)'; g.fillRect(x, y, 1, hh); } });
     const sel = ctx.selected();
-    for (const n of ctx.notes()) { g.fillStyle = statusColor(n.status); g.globalAlpha = n.id === sel ? 0.9 : 0.35; g.fillRect(tx(n.t) - 0.5, y, n.id === sel ? 2 : 1, hh); }
+    // hidden means hidden: the picture row's note ticks go with the row, or "hide notes" would leave a row of marks behind
+    if (!notesOff) for (const n of ctx.notes()) { g.fillStyle = statusColor(n.status); g.globalAlpha = n.id === sel ? 0.9 : 0.35; g.fillRect(tx(n.t) - 0.5, y, n.id === sel ? 2 : 1, hh); }
     g.globalAlpha = 1;
     if (hoverX != null && !dragging && hoverRow !== 'ruler') { g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(hoverX, y, 1, hh); }
   }

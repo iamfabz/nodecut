@@ -302,6 +302,12 @@
 .tl2-hname:hover { color: var(--text); }
 .tl2-hadd { margin-left: auto; flex: none; width: 23px; height: 21px; padding: 0; border-radius: 5px; font-size: 11px; line-height: 1; background: transparent; border: 1px solid var(--border); }
 .tl2-hadd:hover { background: rgba(255,255,255,.08); }
+/* the notes eye: a filter, so it reads as pressed when notes are hidden. Sits on the Scenes row, where it stays reachable
+   after the Notes row itself is gone. */
+.tl2-heye { flex: none; width: 23px; height: 21px; padding: 0; border-radius: 5px; font-size: 11px; line-height: 1; background: transparent;
+  border: 1px solid var(--border); color: var(--muted); cursor: pointer; }
+.tl2-heye:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.tl2-heye.off { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: rgba(56,189,248,.10); }
 /* P3c: header M / S / level chip (mixer.js), the Channels section in Sounds */
 .tl2-wrap.tl2-mx { --tl-head-w: 196px; }
 .tl2-hside { margin-left: auto; flex: none; display: flex; align-items: center; gap: 3px; }
