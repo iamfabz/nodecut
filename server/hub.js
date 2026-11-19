@@ -150,6 +150,18 @@ route('POST', '/api/projects/new', async req => {
   }
   try { fs.cpSync(template, dest, { recursive: true, errorOnExist: true }); }
   catch (e) { try { fs.rmSync(dest, { recursive: true, force: true }); } catch { } throw Object.assign(new Error('Could not copy the starter files: ' + (e.code || e.message)), { code: 500 }); }
+  // A film is a project the person is making, not a change to this app. Films live inside whatever folder the user keeps
+  // them in, which is often inside some repository, and a stray `git add .` would sweep an entire film into a commit. The
+  // folder excludes itself so that cannot happen. Written here rather than shipped in the template because this repo
+  // cannot carry dot-prefixed paths (GitHub's browser upload silently drops them), so a template copy would go missing.
+  try {
+    fs.writeFileSync(path.join(dest, '.gitignore'),
+      '# A film is a project, not part of an app\'s source code.\n' +
+      '# NodeCut writes renders, chunk caches, generated media, audio mixes and the agent conversation into this folder.\n' +
+      '# None of it belongs in a commit, and this folder often sits inside someone else\'s repository.\n' +
+      '# The film\'s own code is excluded too, on purpose: it is only committed if the person decides to.\n' +
+      '*\n!.gitignore\n');
+  } catch { /* a film without this file still works; it is a safeguard, not a requirement */ }
   // The brief and the routing land with the folder. If either fails the whole folder goes: a half-made project that
   // looks finished is worse than no project, because the next person trusts it.
   let routed = null;
