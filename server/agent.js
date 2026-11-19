@@ -172,14 +172,42 @@ export function state(projectId, folder = null) {
   const r = runs.get(projectId);
   if (r) return { status: r.status, entries: r.entries, model: r.model, startedAt: r.startedAt, error: r.error || null, sessionId: r.sessionId };
   const meta = folder ? readMeta(folder) : {};
+  const entries = Array.isArray(meta.entries) ? meta.entries : [];
+  // A run that was cut off leaves a transcript with no ending and no clean-exit marker. Reporting that as "idle" would
+  // say the work finished when it did not, which is the one thing the tab must never do; say it was interrupted instead.
+  const cutOff = !!(meta.interrupted);
   return {
-    status: 'idle',
-    entries: Array.isArray(meta.entries) ? meta.entries : [],
+    status: cutOff ? 'stopped' : 'idle',
+    entries: cutOff ? [...entries, { kind: 'error', text: meta.interrupted }] : entries,
     model: meta.model || null,
     startedAt: meta.startedAt || null,
-    error: null,
+    error: cutOff ? meta.interrupted : null,
     sessionId: meta.sessionId || sessionIdFor(projectId),
   };
+}
+
+// busy(): true while any agent is working. The hub's idle timer asks this before it closes itself — without it, a film
+// being written would be killed mid-sentence by the same rule that closes an unused window.
+export function busy() {
+  for (const r of runs.values()) if (r.status === 'running') return true;
+  return false;
+}
+
+// killAll(): end every run now. Called when the hub is about to exit. Without it a child process outlives its parent,
+// is reparented to PID 1, and keeps working on a film nobody is watching — holding the session open, so the next run
+// in that film collides with it and appears to hang.
+export function killAll() {
+  for (const [id, r] of runs) {
+    try { r.child.kill('SIGKILL'); } catch { }
+    r.status = 'stopped';
+    try {
+      writeMeta(r.folder, {
+        sessionId: r.sessionId, model: r.model || null, startedAt: r.startedAt,
+        entries: [...r.entries.slice(-MAX_LOG), { kind: 'meta', text: 'Stopped when NodeCut closed.' }],
+      });
+    } catch { }
+    runs.delete(id);
+  }
 }
 
 export function stop(projectId) {
@@ -190,13 +218,26 @@ export function stop(projectId) {
   setTimeout(() => { try { r.child.kill('SIGKILL'); } catch { } }, 5000);
   r.status = 'stopped';
   push(r, { kind: 'meta', text: 'Stopped.' });
+  // Stopping on purpose is not being cut off: clear the flag so the tab does not come back saying it was interrupted.
+  try { writeMeta(r.folder, { sessionId: r.sessionId, model: r.model || null, startedAt: r.startedAt, entries: r.entries.slice(-MAX_LOG) }); } catch { }
   return { stopped: true };
 }
 
+// Saved as the run goes, not only when it ends. A hub that exits during a run (idle timer, a restart, a crash) used to
+// take the whole conversation with it, so the tab came back empty and there was no way to tell why. Writing on every
+// entry means the last thing the agent said is still there afterwards.
+let lastSave = 0;
+function saveSoon(r) {
+  const now = Date.now();
+  if (!r.folder || now - lastSave < 1000) return;
+  lastSave = now;
+  try { writeMeta(r.folder, { sessionId: r.sessionId, model: r.model || null, startedAt: r.startedAt, entries: r.entries.slice(-MAX_LOG) }); } catch { }
+}
 function push(r, entry) {
   if (!entry) return;
   r.entries.push(entry);
   if (r.entries.length > MAX_LOG) r.entries.splice(0, r.entries.length - MAX_LOG);
+  saveSoon(r);
   r.onEvent && r.onEvent();
 }
 
@@ -229,6 +270,9 @@ export function start(projectId, folder, message, { model = null, onEvent = null
   // the remembered transcript is shown first, so the tab reads as one continuous conversation across days
   const remembered = Array.isArray(meta.entries) ? meta.entries : [];
   const r = { status: 'running', entries: [...remembered, { kind: 'you', text }], model, startedAt: Date.now(), child, onEvent, error: null, sessionId, folder };
+  // Claim the run on disk before it does anything, so a hub that dies mid-run leaves evidence instead of a clean slate.
+  // The close handler below clears it. Everything else is a cut-off run.
+  try { writeMeta(folder, { sessionId, model: model || meta.model || null, startedAt: r.startedAt, entries: r.entries, interrupted: 'This run was cut off before it finished — NodeCut closed while the agent was still working. Press Send to carry on; it remembers the conversation above.' }); } catch { }
   runs.set(projectId, r);
 
   let buf = '';
@@ -241,6 +285,7 @@ export function start(projectId, folder, message, { model = null, onEvent = null
       if (entry) {
         if (entry.kind === 'text' && r.entries.length && r.entries[r.entries.length - 1].kind === 'text') {
           r.entries[r.entries.length - 1].text += entry.text;   // chunks of one reply are one paragraph
+          saveSoon(r);
           r.onEvent && r.onEvent();
         } else if (entry.kind === 'step' || entry.kind === 'done') {
           // not shown: the transcript is the conversation, not the machine's turn markers
@@ -262,7 +307,8 @@ export function start(projectId, folder, message, { model = null, onEvent = null
   });
   child.on('close', (code) => {
     if (r.status === 'running') r.status = code === 0 && !r.error ? 'done' : (r.error ? 'failed' : 'done');
-    // keep the conversation with the film, not with this browser tab
+    // keep the conversation with the film, not with this browser tab. `interrupted` is cleared here and nowhere else, so
+    // its absence is proof the run ended on its own terms.
     writeMeta(folder, { sessionId, model: model || meta.model || null, startedAt: r.startedAt, entries: r.entries.slice(-MAX_LOG) });
     if (code !== 0 && !r.error && r.status !== 'stopped') {
       r.error = 'opencode exited with code ' + code;
