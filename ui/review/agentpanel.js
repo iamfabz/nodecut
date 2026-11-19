@@ -186,19 +186,25 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
     // the ETA can sit beside it and survive every redraw.
     statusTxt.textContent = label(state.status) + (state.model ? ' · ' + state.model : '');
     status.className = 'ag-status ' + state.status;
-    // The ETA sits at the right-hand end of the status row, under Send. While running it shows what is known and how far
-    // along it is; once it was running long enough for the estimate to be worth stating, it counts down.
+    // The ETA sits at the right-hand end of the status row, under Send. Elapsed time comes first because it is the one
+    // number that is always true: the estimate can only ever be a guess, but the clock keeps moving whether or not the
+    // app knows what comes next.
     const eta = state.eta && state.status === 'running' ? state.eta : null;
     if (eta) {
       const bits = [];
+      if (eta.elapsedMs > 0) bits.push(clock(eta.elapsedMs));
       if (eta.steps) bits.push(`step ${eta.steps}`);
-      bits.push(eta.text);
+      if (eta.text) bits.push(eta.text);
+      etaTxt.dataset.elapsed = String(eta.elapsedMs || 0);   // the ticker advances from this, not from the poll
+      etaTxt.dataset.tail = bits.slice(1).join(' · ');
       etaTxt.textContent = bits.join(' · ');
-      etaTxt.className = 'ag-eta' + (eta.confident === false ? ' late' : '');
+      etaTxt.className = 'ag-eta' + (eta.late ? ' late' : '');
       etaTxt.hidden = false;
     } else if (etaTxt) {
       etaTxt.hidden = true;
       etaTxt.textContent = '';
+      etaTxt.dataset.tail = '';
+      stopTick();   // nothing is running, so no seconds need counting
     }
     const running = state.status === 'running';
     sendBtn.disabled = running || busy;
@@ -207,6 +213,29 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
   }
 
   function withText(node, text) { node.textContent = text; return node; }
+
+  // clock(ms) -> "0:07", "2:14", "12:05". Compact on purpose: this shares a line with two other facts at panel width.
+  function clock(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(s / 60);
+    return m + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  // The transcript polls every 1.2 s, which is right for text but makes a seconds timer stutter — so the clock advances on
+  // its own tick and the poll re-syncs it. It only runs while a job is running, and it never guesses the estimate: it
+  // advances the elapsed half of the line and leaves the rest exactly as the server last said it.
+  let tick = null;
+  function startTick() {
+    if (tick) return;
+    tick = setInterval(() => {
+      if (etaTxt.hidden) return;
+      const was = +etaTxt.dataset.elapsed || 0;
+      const now = was + 1000;
+      etaTxt.dataset.elapsed = String(now);
+      etaTxt.textContent = clock(now) + (etaTxt.dataset.tail ? ' · ' + etaTxt.dataset.tail : '');
+    }, 1000);
+  }
+  function stopTick() { if (tick) { clearInterval(tick); tick = null; } }
 
   async function refresh() {
     try {
@@ -255,9 +284,10 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
   let timer = null;
   function poll() {
     clearInterval(timer);
+    startTick();
     timer = setInterval(async () => {
       await refresh();
-      if (state.status !== 'running') { clearInterval(timer); timer = null; }
+      if (state.status !== 'running') { clearInterval(timer); timer = null; stopTick(); }
     }, 1200);
   }
 
@@ -274,8 +304,8 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
 
   return {
     el,
-    init: async () => { await refresh(); await loadModels(); if (state.status === 'running') poll(); },
-    destroy: () => { clearInterval(timer); if (off) off(); },
+    init: async () => { await refresh(); await loadModels(); if (state.status === 'running') poll(); else stopTick(); },
+    destroy: () => { clearInterval(timer); stopTick(); if (off) off(); },
     focus: () => input.focus(),
   };
 }

@@ -152,6 +152,8 @@ test('estimate: with no past runs it stays vague rather than inventing a number'
   assert.equal(e.hasHistory, false);
   assert.equal(e.remainingMs, null);
   assert.equal(e.confident, false);
+  // not knowing the answer must not be styled as a warning: first run, nothing has gone wrong
+  assert.equal(e.late, false);
   assert.match(e.text, /few minutes/);
   // and it never dresses the guess up as a countdown
   assert.doesNotMatch(e.text, /left/);
@@ -171,6 +173,7 @@ test('estimate: with history it uses the median of this film\'s own runs', () =>
   assert.ok(e.remainingMs > 80_000 && e.remainingMs < 100_000, 'remaining should be near 90s, got ' + e.remainingMs);
   assert.match(e.text, /left/);
   assert.equal(e.confident, true);
+  assert.equal(e.late, false);
 });
 
 test('estimate: steps reduce the remaining time', () => {
@@ -181,7 +184,7 @@ test('estimate: steps reduce the remaining time', () => {
 
 test('estimate: past the expected time it says so instead of showing a negative countdown', () => {
   const e = estimate({ status: 'running', startedAt: 1_000_000, steps: 0, runTimes: [60000], now: 1_300_000 });
-  assert.equal(e.confident, false);
+  assert.equal(e.late, true);
   assert.ok(e.remainingMs >= 0, 'never negative');
   assert.match(e.text, /longer than usual/);
 });

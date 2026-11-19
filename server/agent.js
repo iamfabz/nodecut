@@ -178,6 +178,9 @@ export function writeMeta(folder, patch) {
 //   past runs      the median of this film's own finished runs, which is measured, not guessed
 //   running long   once elapsed passes the estimate, the wording changes to say it is taking longer than expected
 //
+// `confident` says whether a measured figure backs the estimate. `late` says the run has passed that figure — a separate
+// thing, and the only one that should colour the line, so an honest first run does not look like a warning.
+//
 // Steps refine the estimate while a run is going: if it is at step 4 of a typical 10, roughly 40% is done.
 export function estimate({ status = 'idle', startedAt = null, steps = 0, runTimes = [], now = Date.now(), typicalSteps = 10 } = {}) {
   const elapsedMs = startedAt && status === 'running' ? Math.max(0, now - startedAt) : 0;
@@ -187,7 +190,7 @@ export function estimate({ status = 'idle', startedAt = null, steps = 0, runTime
   const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
   const base = median ?? null;
 
-  const out = { elapsedMs, steps, hasHistory: !!median, typicalMs: base };
+  const out = { elapsedMs, steps, hasHistory: !!median, typicalMs: base, late: false };
   if (status !== 'running') return { ...out, remainingMs: null, text: '' };
 
   if (!base) {
@@ -203,7 +206,8 @@ export function estimate({ status = 'idle', startedAt = null, steps = 0, runTime
   const remainingMs = Math.max(0, Math.round(base * (1 - bySteps) - elapsedMs));
   const late = elapsedMs > base * 1.25;
   out.remainingMs = remainingMs;
-  out.confident = !late;
+  out.late = late;
+  out.confident = true;
   out.text = late
     ? `taking longer than usual · ${fmtDur(elapsedMs)} so far`
     : remainingMs > 20000 ? `about ${fmtDur(remainingMs)} left`
