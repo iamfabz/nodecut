@@ -151,6 +151,16 @@ export async function makeT2V(p, { prompt, resolution = '720p', orientation = 'l
     billed: j?.inference_status?.cost ?? null, from: 'text',
   };
   add(p, rec);
+  // Bake it into the sprite sheets the film can draw. A clip is a baked MP4, not a function of t, so vhatlas.js reads
+  // these sheets and draws one cell per moment — that is what keeps the film a pure function of t. Without the bake the
+  // asset exists but nothing can draw it, which is exactly what happened to the first clip made this way.
+  try {
+    const baked = await bakeClip(p, id, {});
+    Object.assign(rec, { baked: true, atlas: rel(ATLAS_DIR, id + '.json'), frames: baked?.frames || null });
+  } catch (e) {
+    // a clip that failed to bake is still a clip on disk; say so rather than pretending it is drawable
+    Object.assign(rec, { baked: false, bakeError: e.message });
+  }
   return rec;
 }
 
