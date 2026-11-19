@@ -192,20 +192,20 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
 .app.side-hidden { --side-w: 0px; }
 .app.side-hidden > .side { visibility: hidden; pointer-events: none; }
 .side { width: var(--side-w); overflow: hidden; }
-/* The two sidebar toggles. One lives in the sidebar itself (always visible, top right of the logo row); the other
-   floats over the content and only appears once the sidebar is gone, because the in-sidebar one would have gone
-   with it. The float is positioned rather than placed in the grid, so it cannot take a column.
-   All of the .app placement rules live here together: a stray third child in a two-column grid would silently
-   create a row. */
+/* The two sidebar toggles. The open-sidebar toggle sits in the logo row. The reveal button floats over the content and
+   only appears once the sidebar is gone — and it is pinned to the TOP LEFT corner, not centred on the left edge, so
+   the control that brings the menu back is always in the same place your eye goes to first. It is positioned rather
+   than placed in the grid, so it cannot take a column. */
 .app > .main { grid-column: 2; }
 .sidett-float {
-  position: fixed; left: 10px; top: 50%; transform: translateY(-50%); z-index: 40;
-  width: 22px; height: 40px; padding: 0; border-radius: 0 8px 8px 0; font-size: 15px; line-height: 1;
-  color: var(--muted); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.10);
+  position: fixed; left: 0; top: 12px; z-index: 40;
+  width: 26px; height: 26px; padding: 0; border-radius: 0 8px 8px 0; font-size: 14px; line-height: 1;
+  display: grid; place-items: center;
+  color: var(--muted); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.10); border-left: none;
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   box-shadow: 0 2px 12px -2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.12);
 }
-.sidett-float:hover { color: var(--text); background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.20); }
+.sidett-float:hover { color: var(--text); background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.20); border-left: none; }
 .sidett-float[hidden] { display: none; }
 .sidett {
   position: absolute; top: 18px; right: 8px; width: 22px; height: 22px; padding: 0; border-radius: 6px;
