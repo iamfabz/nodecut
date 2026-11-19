@@ -1110,9 +1110,21 @@ export async function reviewPage(page, id, relArg = '') {
     else notes.push(n);
     notesPanel.render(); timeline.draw(); redraw();
   });
-  const offLive = onHubEvent('live-changed', ev => { if (liveSrc && ev?.project === id) { api('/api/project/' + id + '/live').then(fresh => {
-        if (fresh.ok) liveSrc.reload(fresh);
-      }).catch(e => toast('Could not reload code: ' + e.message, true)); toast('Code changed, preview reloaded' + (ev.files?.length ? ': ' + ev.files.slice(0, 3).join(', ') : '')); } });
+  let offReady = null;   // the pending 'wait for the reloaded page' subscription, so it is never left dangling
+  const offLive = onHubEvent('live-changed', ev => {
+    if (!liveSrc || ev?.project !== id) return;
+    api('/api/project/' + id + '/live').then(fresh => {
+      if (fresh.ok) {
+        // The redraw waits for the new page to report ready. Reading scenes before then returns the old list, so the
+        // timeline would redraw itself into the state it was already in and nothing would look changed.
+        const done = () => { offReady?.(); try { loadScenes(true); } catch { } outline.retryWaiting(); redraw(); };
+        offReady = liveSrc.whenReady ? liveSrc.whenReady(done) : null;
+        if (!liveSrc.whenReady) setTimeout(done, 1200);
+        liveSrc.reload(fresh);
+      }
+    }).catch(e => toast('Could not reload code: ' + e.message, true));
+    toast('Code changed, preview reloaded' + (ev.files?.length ? ': ' + ev.files.slice(0, 3).join(', ') : ''));
+  });
   const offProxy = onHubEvent('proxy', ev => {
     if (!ev || ev.key !== proxyKey) return;
     if (ev.state === 'ready') api('/api/media/proxy?p=' + encodeURIComponent(cur.path)).then(st => { if (st.state === 'ready') { proxyUrl = st.url; useSource(st.url, true); } });
@@ -1285,7 +1297,7 @@ export async function reviewPage(page, id, relArg = '') {
     shuttle.stop({ pause: false }); transport.destroy(); agentPanel.destroy();
     ro2.disconnect(); cancelAnimationFrame(clampRaf); topFit.destroy(); dockSplit.destroy(); sideSplit.destroy(); styleMenu?.close(); side.destroy(); outline.destroy();
     appEl?.classList.remove('app-editor', 'side-peek'); mainEl?.classList.remove('main-editor');
-    offTips(); ro.disconnect(); timeline.destroy(); clearInterval(diffTimer); offProxy(); offLive(); offNote(); renderBtn?.destroy(); sceneEd?.destroy(); scanner?.destroy(); mixer?.destroy(); mixer = null; soundEd?.destroy(); soundEd = null; edit2d?.destroy(); liveCover?.destroy(); liveSrc?.destroy();
+    offTips(); ro.disconnect(); timeline.destroy(); clearInterval(diffTimer); offProxy(); offLive(); offReady?.(); offNote(); renderBtn?.destroy(); sceneEd?.destroy(); scanner?.destroy(); mixer?.destroy(); mixer = null; soundEd?.destroy(); soundEd = null; edit2d?.destroy(); liveCover?.destroy(); liveSrc?.destroy();
     videoA.pause(); videoA.removeAttribute('src'); videoA.load(); videoB.pause(); videoB.removeAttribute('src'); videoB.load();
     page.classList.remove('page-wide', 'page-editor');
   };
