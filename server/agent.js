@@ -43,6 +43,15 @@ export const STYLE = [
   '- This folder is a FILM PROJECT, not part of NodeCut\'s source code. Never run git commands here: no git add, commit,',
   '  stash, checkout or branch. The person decides what to keep; nothing in this folder is a code change to the app.',
   '- Do not edit files outside this folder. The studio\'s own code lives elsewhere and is not yours to change.',
+  '',
+  // Audio used to be the one thing an agent could not make, so it synthesized a beep track in code and called it music, and
+  // later asked the user to paste an API key into a .env file that the studio never reads. Both are named and closed here.
+  'Sound:',
+  '- For any music, voice-over or sound effect, use hub_generate_audio. It uses the ElevenLabs key the user already saved in',
+  '  Settings > Generation. Never ask them for the key, and never tell them to put it in a .env file.',
+  '- Never present a synthesized tone, chord bed or MIDI-style sequence as music for the film. If hub_generate_audio fails,',
+  '  say what it said and stop; a cheap placeholder is worse than an honest gap.',
+  '- Before a voice-over, run hub_voices and ask which voice. Do not choose one for them.',
 ].join('\n');   // an agent turn on a film can take minutes; ten is the ceiling
 export const MAX_LOG = 400;                      // transcript entries kept per run
 

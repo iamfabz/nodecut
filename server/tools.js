@@ -123,6 +123,39 @@ export const TOOLS = {
       return `Made still ${r.id} in "${p.title}": ${r.file}\nPrompt: "${r.prompt}"\nDraw it in film.js with vhatlas.js (a plate is one cell): GEN.get('${r.id}').draw(g, 0, x, y, w, h), or animate it with hub_generate_clip.`;
     },
   },
+  hub_generate_audio: {
+    description: 'Make audio for the film with ElevenLabs: a voice-over line, a music bed, or a sound effect. Needs only the ElevenLabs key in Settings > Generation — it does NOT need generation switched on, because audio is not the image/clip pipeline and has its own key. The file lands in the film\'s audio/ folder (and a WAV copy beside it for mixing).',
+    schema: {
+      project: z.string().optional().describe('Project folder, name or id. Default: the working folder.'),
+      kind: z.enum(['voiceover', 'music', 'sfx']).describe('voiceover = spoken text on a chosen voice; music = a described music bed; sfx = one described sound.'),
+      text: z.string().optional().describe('For voiceover: the words to speak. For music and sfx: what it should sound like.'),
+      voiceId: z.string().optional().describe('For voiceover: an id from hub_voices. Ask the user which voice instead of guessing.'),
+      name: z.string().optional().describe('File name without extension. Keep it descriptive (vo_line_03, bed, door_close).'),
+      lengthMs: z.number().optional().describe('For music: how long, in milliseconds. Default 30000. The film\'s own length is the right answer.'),
+      durationSec: z.number().optional().describe('For sfx: roughly how long, in seconds.'),
+    },
+    run: async a => {
+      const p = await resolve(a.project);
+      const st = await call('GET', `/api/project/${p.id}/audio`);
+      if (!st.hasKey) return 'No ElevenLabs key is saved. Ask the user to add one in NodeCut > Settings > Generation (ElevenLabs key). Do not ask them for the key itself.';
+      if (a.kind === 'voiceover' && !a.voiceId) return 'A voiceover needs a voiceId. Run hub_voices to see what the account has, then ask the user which one before generating.';
+      const body = { name: a.name, text: a.text || a.prompt, lengthMs: a.lengthMs, durationSec: a.durationSec };
+      if (a.kind === 'voiceover') body.voiceId = a.voiceId;
+      const r = await call('POST', `/api/project/${p.id}/audio/${a.kind}`, body, 240e3);
+      return `Made ${a.kind} in "${p.title}": ${r.rel}${r.wav ? ' (WAV: ' + r.wav + ')' : ''}\nPut it in the film\'s mix — the bed and voice are combined by the film\'s own audio script, so add it there rather than drawing it.`;
+    },
+  },
+  hub_voices: {
+    description: 'List the ElevenLabs voices the saved key can use. Run this before a voice-over and ask the user which voice they want; do not pick one silently.',
+    schema: {},
+    run: async () => {
+      const r = await call('GET', '/api/audio/voices');
+      if (!r.hasKey) return 'No ElevenLabs key is saved. Ask the user to add one in NodeCut > Settings > Generation.';
+      if (r.error) return 'Could not list voices: ' + r.error;
+      if (!r.voices.length) return 'The account has no voices.';
+      return r.voices.map(v => `${v.id} · ${v.name}${v.category ? ' · ' + v.category : ''}`).join('\n');
+    },
+  },
   hub_generate_clip: {
     description: 'Animate a still into a video clip with an image-to-video model (OpenRouter, heygen by default) and bake it into atlases the film can draw. Costs money per second and the price is shown by the tool before it submits. The job runs for minutes on OpenRouter, so this returns immediately with a job id; the clip lands in gen/ when it finishes and the live preview can draw it.',
     schema: {
