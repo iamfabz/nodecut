@@ -8,13 +8,20 @@ Everything below is open work. Nothing here is promised for a version or a date.
 
 ## The headline
 
-Three features that change what NodeCut is. Today it starts from a plan and writes the film. These start from a
-**recording** — yours, a client's, or one you just shot on a phone — and take it to a finished film. That is a much
-bigger audience, and it is the direction the app is going.
+Four features that change what NodeCut is. Today it starts from a plan and writes the film. These start from a
+**recording** — yours, a client's, or one you just shot on a phone — and take it to a finished film that you can keep
+directing afterwards. That is a much bigger audience, and it is the direction the app is going.
 
-They are listed here in the order they make sense: you cannot polish footage you have not got in, and you cannot
-transcribe audio you have not captured.
+They are listed here in the order they make sense: you cannot polish footage you have not got in, you cannot transcribe
+audio you have not captured, and you cannot keep directing a film the app cannot remember.
 
+- [ ] **Build a film end to end, then keep editing it with what you add.** The whole loop in one place: describe the
+      film, let it plan and build, then keep changing one thing at a time — a note, a still, a line of new direction —
+      and have the whole film follow, without anything it already decided quietly reverting. The parts exist (brief,
+      plan, build, notes with the frame and a close-up). What does not exist is **continuity**: the app has no memory of
+      what was settled earlier, so an edit late in a film can undo a decision made in scene two and nothing notices.
+      This is the feature that makes the app feel like a collaborator rather than a generator. See
+      [#16](https://github.com/iamfabz/nodecut/issues/16).
 - [ ] **Record into the studio from another device.** Display a QR code, scan it with a phone, and shoot straight into
       the project. Works for camera and for microphone. Local machine capture where a mic exists. See
       [#13](https://github.com/iamfabz/nodecut/issues/13) for camera and
@@ -72,6 +79,19 @@ Ideas worth keeping, not worth committing to.
 - [ ] **A plugin surface for encoders** without editing the render pipeline.
 - [ ] **A keyboard-complete editor.** The shortcuts are good. Someone who never touches the mouse should be able to
       make a whole film.
+- [ ] **Characters that stay the same across scenes, and animate.** The gap that stops NodeCut making a film with a
+      person in it. Today there is no identity lock: a generated still in scene one and a generated still in scene nine
+      are two unrelated pictures of two unrelated people, and a checked plan cannot tell. Doing this properly means a
+      character definition the film can refer to by name, a way to keep a face, build and wardrobe stable when a still
+      or clip is generated, and a rig that can be posed and animated rather than a picture that is swapped.
+
+      Worth being blunt about the cost: character animation is a different discipline from motion graphics, and the
+      architecture pushes against parts of it. A film is a pure function of `t`, which rules out the stateful
+      frame-to-frame simulation most rigs assume. That is not a reason never to do it, but it does mean this is the one
+      item here that could take months rather than weeks, and it should not be started until the recording and rebuild
+      work has proved the app can carry a real film end to end. **Further out than anything else on this page, and
+      least urgent** — NodeCut is a camera-and-edit tool today, and it is a good one. See
+      [#17](https://github.com/iamfabz/nodecut/issues/17).
 
 ## Done
 
