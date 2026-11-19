@@ -233,7 +233,7 @@ export function routes(route, project, readBody, port) {
   // the settings the panel draws, minus the key values (a key is never sent back to a page)
   route('GET', '/api/gen/config', () => {
     const s = genSettings();
-    return { ...s, keys: { DEEPINFRA_API_KEY: hasKey('DEEPINFRA_API_KEY'), OPENROUTER_API_KEY: hasKey('OPENROUTER_API_KEY') } };
+    return { ...s, keys: { DEEPINFRA_API_KEY: hasKey('DEEPINFRA_API_KEY'), OPENROUTER_API_KEY: hasKey('OPENROUTER_API_KEY'), ELEVENLABS_API_KEY: hasKey('ELEVENLABS_API_KEY') } };
   });
   route('POST', '/api/gen/config', async (req) => {
     const body = await readBody(req);
@@ -242,13 +242,13 @@ export function routes(route, project, readBody, port) {
     for (const k of ['enabled', 'dailyCapUsd', 't2iModel', 'i2vModel', 'resolution', 'duration']) if (k in body) patch[k] = body[k];
     if (body.keys && typeof body.keys === 'object') {
       const keys = { ...(prev.keys || {}) };
-      for (const n of ['DEEPINFRA_API_KEY', 'OPENROUTER_API_KEY']) if (typeof body.keys[n] === 'string' && body.keys[n].trim()) keys[n] = body.keys[n].trim();
+      for (const n of ['DEEPINFRA_API_KEY', 'OPENROUTER_API_KEY', 'ELEVENLABS_API_KEY']) if (typeof body.keys[n] === 'string' && body.keys[n].trim()) keys[n] = body.keys[n].trim();
       patch.keys = keys;
     }
     if (patch.dailyCapUsd != null) patch.dailyCapUsd = Math.max(0, +patch.dailyCapUsd || 0);
     if (patch.duration != null) patch.duration = Math.max(1, Math.round(+patch.duration || 5));
     saveConfig({ generation: { ...prev, ...patch } });
-    return { ...genSettings(), keys: { DEEPINFRA_API_KEY: hasKey('DEEPINFRA_API_KEY'), OPENROUTER_API_KEY: hasKey('OPENROUTER_API_KEY') } };
+    return { ...genSettings(), keys: { DEEPINFRA_API_KEY: hasKey('DEEPINFRA_API_KEY'), OPENROUTER_API_KEY: hasKey('OPENROUTER_API_KEY'), ELEVENLABS_API_KEY: hasKey('ELEVENLABS_API_KEY') } };
   });
 
   // today's spend, so the panel can show it next to the cap
