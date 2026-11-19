@@ -7,6 +7,7 @@ import { h } from '../app.js';
 export function createLiveSource(info, { onStatus } = {}) {
   const box = h('div', { class: 'livebox' });
   let waitTimer = 0, iframe = null, win = null, ready = false, t = 0, paused = true, rate = 1, seeking = false;
+  let readyWaiters = [];   // callbacks waiting for the CURRENT load to finish (a code-change redraw needs this)
   let displayedTime = 0, destroyed = false, loadVersion = 0, seekVersion = 0, seekTimer = 0, playTimer = 0;
   let wantPlay = false;   // play asked for while the page was loading: start once it is ready
   let base = { t: 0, at: 0 }, raf = 0, need = false, rvfc = [], frames = 0, fpsAt = performance.now(), drawMs = 0, scale = 1;
@@ -39,6 +40,9 @@ export function createLiveSource(info, { onStatus } = {}) {
       if (err) { clearInterval(wait); status({ state: 'error', error: err }); return; }
       if (win && win.READY === true && typeof win.renderOut === 'function') {
         clearInterval(wait); ready = true; status({ state: 'ready', ms: Math.round(performance.now() - t0) });
+        // nobody should wait twice: take the list, call each once, and let a failure there not break the player
+        const pending = readyWaiters; readyWaiters = [];
+        for (const fn of pending) { try { fn(); } catch { } }
         if (wantPlay) playTimer = setTimeout(() => { playTimer = 0; if (!destroyed && version === loadVersion && wantPlay) play(); }, 50);
         // the page may know its own timing and size better (the 3D studio sets window.__config)
         let c = win.__config || win.VH_CONFIG;
@@ -214,8 +218,11 @@ export function createLiveSource(info, { onStatus } = {}) {
       }
       load(); wantPlay = wasPlaying;
     },
+    // whenReady(fn) -> unsubscribe. Fires once when the next load reports READY, so a caller that must read the page
+    // after a reload can wait for it instead of guessing a delay.
+    whenReady(fn) { if (ready) { try { fn(); } catch { } return () => { }; } readyWaiters.push(fn); return () => { readyWaiters = readyWaiters.filter(f => f !== fn); }; },
     fit(w) { scale = w / info.w; if (iframe) iframe.style.transform = `scale(${scale})`; },
-    destroy() { destroyed = true; ready = false; paused = true; wantPlay = false; ++loadVersion; clearInterval(waitTimer); clearTimeout(playTimer); clearSeek(); cancelAnimationFrame(raf); rvfc = []; audio?.pause(); if (audio) { audio.removeAttribute('src'); audio.load(); } iframe?.remove(); win = null; },
+    destroy() { destroyed = true; ready = false; readyWaiters = []; paused = true; wantPlay = false; ++loadVersion; clearInterval(waitTimer); clearTimeout(playTimer); clearSeek(); cancelAnimationFrame(raf); rvfc = []; audio?.pause(); if (audio) { audio.removeAttribute('src'); audio.load(); } iframe?.remove(); win = null; },
     // the review player calls these on <video>; nothing to do here
     removeAttribute() { }, load() { },
   });
