@@ -36,6 +36,13 @@ export const STYLE = [
   '  person needs one, no error codes without saying in plain words what went wrong.',
   '- Say what you did, or what you found, and stop. Do not explain your process.',
   '- If something needs a decision, ask one short question instead of listing options.',
+  '',
+  // The work in this folder is the film, not a code change to NodeCut. A film is a project the person is making, so its
+  // files must never be presented as, or swept into, a commit to this app. Said on every turn because a long session drifts.
+  'Working rules for this folder:',
+  '- This folder is a FILM PROJECT, not part of NodeCut\'s source code. Never run git commands here: no git add, commit,',
+  '  stash, checkout or branch. The person decides what to keep; nothing in this folder is a code change to the app.',
+  '- Do not edit files outside this folder. The studio\'s own code lives elsewhere and is not yours to change.',
 ].join('\n');   // an agent turn on a film can take minutes; ten is the ceiling
 export const MAX_LOG = 400;                      // transcript entries kept per run
 
