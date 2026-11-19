@@ -120,14 +120,13 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
   if (aside) sendRow.append(aside);
   sendRow.append(sendBtn);
   controls.append(modelBtn, stopBtn, spacer, sendRow);
-  el.append(stalled, log, row, controls, status);
 
   let state = { status: 'idle', entries: [] };
   let busy = false;
 
   // A brand-new film whose agent never began is the one state where silence looks like the app is broken: the folder
   // exists, the page looks normal, and no work is happening. Show it plainly with a way out, instead of relying on
-  // someone noticing there is nothing in the transcript.
+  // someone noticing there is nothing in the transcript. Declared before the append below, which puts it on the page.
   const stalled = mk('div', 'ag-stalled');
   stalled.hidden = true;
   function paintStalled() {
@@ -135,9 +134,12 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
     stalled.hidden = !(idleAndEmpty && state.hasBrief);
     if (stalled.hidden) return;
     stalled.replaceChildren();
+    // mk's third argument is an attribute map, not text: text goes through textContent, as elsewhere in this file.
     stalled.append(
-      mk('span', 'ag-stalled-txt', 'This film has a brief but the agent has not started building it.'),
-      Object.assign(mk('button', { class: 'ag-stalled-btn' }), {
+      Object.assign(mk('span', 'ag-stalled-txt'), {
+        textContent: 'This film has a brief but the agent has not started building it.',
+      }),
+      Object.assign(mk('button', 'ag-stalled-btn'), {
         textContent: 'Start building it',
         onclick: async () => {
           stalled.hidden = true;
@@ -152,6 +154,8 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
       }),
     );
   }
+
+  el.append(stalled, log, row, controls, status);
 
   const label = (st) => ({
     idle: 'Ready', running: 'Working…', done: 'Done', failed: 'Failed', stopped: 'Stopped', timeout: 'Timed out',
