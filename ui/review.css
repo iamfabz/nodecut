@@ -643,7 +643,10 @@ img.gen-thumb { object-fit: cover; }
 .rv2-agent { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; height: 100%; min-height: 0; gap: 8px; padding: 8px; box-sizing: border-box; }
 .ag-log { overflow: auto; min-height: 0; display: grid; gap: 8px; align-content: start; padding-right: 2px; }
 .ag-empty { display: grid; gap: 6px; place-items: center; padding: 24px 8px; }
-.ag-empty-in { font-size: var(--fs-sm); color: var(--muted); text-align: center; line-height: 1.55; max-width: 260px; }
+/* The empty-state line is capped at 260px so it wraps into a readable measure. In a grid, a capped child still sits at
+   the start of its column unless it is centred, so `margin-inline: auto` puts the box itself in the middle of the panel
+   rather than only centring the text inside a left-pinned box. */
+.ag-empty-in { font-size: var(--fs-sm); color: var(--muted); text-align: center; line-height: 1.55; max-width: 260px; margin-inline: auto; }
 .ag-you, .ag-text, .ag-tool, .ag-err, .ag-raw { font-size: var(--fs-sm); line-height: 1.55; border-radius: 10px; padding: 8px 11px; white-space: pre-wrap; word-break: break-word; }
 .ag-you { background: var(--card2); color: var(--text); border: 1px solid var(--border); justify-self: end; max-width: 92%; }
 .ag-text { background: var(--bg); border: 1px solid var(--border); color: var(--text); }
