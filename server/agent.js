@@ -167,10 +167,65 @@ export function writeMeta(folder, patch) {
   return next;
 }
 
+// estimate({status, startedAt, steps, runTimes, now}) -> what the tab says about finishing.
+//
+// An agent cannot know how long a job will take: it does not know what it will find. So this never invents a precise
+// number. It reports three things it can actually stand behind — how long it has been running, how many steps it has
+// taken, and a completion estimate that only appears once there is evidence for one.
+//
+//   no past runs   the estimate is deliberately coarse ("a few minutes"): a made-up figure would be trusted and then be
+//                  wrong, which is worse than saying nothing specific
+//   past runs      the median of this film's own finished runs, which is measured, not guessed
+//   running long   once elapsed passes the estimate, the wording changes to say it is taking longer than expected
+//
+// Steps refine the estimate while a run is going: if it is at step 4 of a typical 10, roughly 40% is done.
+export function estimate({ status = 'idle', startedAt = null, steps = 0, runTimes = [], now = Date.now(), typicalSteps = 10 } = {}) {
+  const elapsedMs = startedAt && status === 'running' ? Math.max(0, now - startedAt) : 0;
+  const times = (runTimes || []).filter(t => Number.isFinite(t) && t > 5000);
+  // the median, not the mean: one run that hit an unexpected fix-up should not drag every later estimate with it
+  const sorted = [...times].sort((a, b) => a - b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
+  const base = median ?? null;
+
+  const out = { elapsedMs, steps, hasHistory: !!median, typicalMs: base };
+  if (status !== 'running') return { ...out, remainingMs: null, text: '' };
+
+  if (!base) {
+    // no evidence: say what is true and useful, and do not dress it up as a calculation
+    out.text = elapsedMs < 45000 ? 'starting · a few minutes' : 'working · a few minutes';
+    out.remainingMs = null;
+    out.confident = false;
+    return out;
+  }
+
+  // progress by steps when there are any, and never let a step count promise more than the clock allows
+  const bySteps = steps > 0 ? Math.min(0.9, steps / Math.max(typicalSteps, steps)) : 0;
+  const remainingMs = Math.max(0, Math.round(base * (1 - bySteps) - elapsedMs));
+  const late = elapsedMs > base * 1.25;
+  out.remainingMs = remainingMs;
+  out.confident = !late;
+  out.text = late
+    ? `taking longer than usual · ${fmtDur(elapsedMs)} so far`
+    : remainingMs > 20000 ? `about ${fmtDur(remainingMs)} left`
+      : 'nearly done';
+  return out;
+}
+
+// fmtDur(ms) -> "2 min", "45 s", "1 min 30 s". Short, because it sits in a status line.
+export function fmtDur(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + ' s';
+  const m = Math.floor(s / 60), rem = s % 60;
+  return rem && m < 10 ? `${m} min ${rem} s` : `${m} min`;
+}
+
 // state(projectId, folder?) -> what the UI needs: status, the live transcript, and the remembered one when idle
 export function state(projectId, folder = null) {
   const r = runs.get(projectId);
-  if (r) return { status: r.status, entries: r.entries, model: r.model, startedAt: r.startedAt, error: r.error || null, sessionId: r.sessionId };
+  if (r) return {
+    status: r.status, entries: r.entries, model: r.model, startedAt: r.startedAt, error: r.error || null, sessionId: r.sessionId,
+    steps: r.steps || 0, eta: estimate({ status: r.status, startedAt: r.startedAt, steps: r.steps || 0, runTimes: (() => { try { return readMeta(folder).runTimes || []; } catch { return []; } })() }),
+  };
   const meta = folder ? readMeta(folder) : {};
   const entries = Array.isArray(meta.entries) ? meta.entries : [];
   // A run that was cut off leaves a transcript with no ending and no clean-exit marker. Reporting that as "idle" would
@@ -269,7 +324,7 @@ export function start(projectId, folder, message, { model = null, onEvent = null
 
   // the remembered transcript is shown first, so the tab reads as one continuous conversation across days
   const remembered = Array.isArray(meta.entries) ? meta.entries : [];
-  const r = { status: 'running', entries: [...remembered, { kind: 'you', text }], model, startedAt: Date.now(), child, onEvent, error: null, sessionId, folder };
+  const r = { status: 'running', entries: [...remembered, { kind: 'you', text }], model, startedAt: Date.now(), child, onEvent, error: null, sessionId, folder, steps: 0 };
   // Claim the run on disk before it does anything, so a hub that dies mid-run leaves evidence instead of a clean slate.
   // The close handler below clears it. Everything else is a cut-off run.
   try { writeMeta(folder, { sessionId, model: model || meta.model || null, startedAt: r.startedAt, entries: r.entries, interrupted: 'This run was cut off before it finished — NodeCut closed while the agent was still working. Press Send to carry on; it remembers the conversation above.' }); } catch { }
@@ -288,7 +343,9 @@ export function start(projectId, folder, message, { model = null, onEvent = null
           saveSoon(r);
           r.onEvent && r.onEvent();
         } else if (entry.kind === 'step' || entry.kind === 'done') {
-          // not shown: the transcript is the conversation, not the machine's turn markers
+          // not shown: the transcript is the conversation, not the machine's turn markers. Counted, though: steps are the
+          // only honest measure of how far through a run the agent is, and the ETA is built from them.
+          if (entry.kind === 'step') r.steps = (r.steps || 0) + 1;
         } else if (entry.kind === 'error') {
           r.error = entry.text;
           push(r, entry);
@@ -307,9 +364,14 @@ export function start(projectId, folder, message, { model = null, onEvent = null
   });
   child.on('close', (code) => {
     if (r.status === 'running') r.status = code === 0 && !r.error ? 'done' : (r.error ? 'failed' : 'done');
+    // Keep what this run actually took, so the next estimate for this film is measured rather than guessed. Only runs
+    // that ended on their own count: a stopped or cut-off run says nothing about how long the work really needs.
+    const tookMs = r.startedAt ? Date.now() - r.startedAt : null;
+    const past = Array.isArray(meta.runTimes) ? meta.runTimes.slice(-9) : [];
+    const runTimes = tookMs && r.status !== 'stopped' ? [...past, tookMs] : past;
     // keep the conversation with the film, not with this browser tab. `interrupted` is cleared here and nowhere else, so
     // its absence is proof the run ended on its own terms.
-    writeMeta(folder, { sessionId, model: model || meta.model || null, startedAt: r.startedAt, entries: r.entries.slice(-MAX_LOG) });
+    writeMeta(folder, { sessionId, model: model || meta.model || null, startedAt: r.startedAt, entries: r.entries.slice(-MAX_LOG), runTimes });
     if (code !== 0 && !r.error && r.status !== 'stopped') {
       r.error = 'opencode exited with code ' + code;
       push(r, { kind: 'error', text: r.error });
