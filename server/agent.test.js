@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseLine, state, stop, forget, start, sessionIdFor, readMeta, writeMeta, SESSION_FILE } from './agent.js';
+import { parseLine, state, stop, forget, start, sessionIdFor, readMeta, writeMeta, SESSION_FILE, STYLE } from './agent.js';
 
 // --- captured from the CLI
 const STEP_START = '{"type":"step_start","timestamp":1794960347067,"sessionID":"ses_1","part":{"id":"prt_1","type":"step-start"}}';
@@ -523,4 +523,52 @@ test('a run that succeeds is still done, and records no invented error', async (
     if (savedServer === undefined) delete process.env.OPENCODE_STATE_DIR; else process.env.OPENCODE_STATE_DIR = savedServer;
     forget('p-exitok');
   }
+});
+
+// --- a turn must never end in a question -------------------------------------------------------------
+// NodeCut runs turns so they can be left alone. A question at the end is a dead end: the person has to come back, read it,
+// answer it and wait again. The rule is stated in the prompt, so it is tested on the prompt rather than trusted to hold.
+test('the standing instructions tell the agent to decide, not to ask', () => {
+  assert.match(STYLE, /Never end a turn with a question/);
+  assert.match(STYLE, /Where a choice comes up, make it/);
+  // the old wording actively invited a question, and it sat two lines above the "no questions" rule
+  assert.doesNotMatch(STYLE, /ask one short question/i);
+  assert.doesNotMatch(STYLE, /ask which voice/i);
+  // a blocker is still allowed to stop the work, but reported as an error, never as a question
+  // the sentence wraps across two lines in the prompt, so the match allows the wrap
+  assert.match(STYLE.replace(/\n\s*/g, ' '), /Report that as an error/i);
+});
+
+test('a film brief repeats the rule, because the brief outlives the session that made it', async () => {
+  const { writeBrief } = await import('./brief.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-brief-'));
+  writeBrief(dir, 'A test film', 'a short documentary edit of a recording about cooking pasta');
+  const md = fs.readFileSync(path.join(dir, 'BRIEF.md'), 'utf8');
+  assert.match(md, /autonomous build/i);
+  assert.match(md, /without stopping to ask a question/i);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- catching the turn that stopped to ask, because the exit code cannot see it ---------------------------------------
+// A turn ending in a question exits 0: it succeeded, it just stopped halfway and waited for someone. This is the check
+// that notices, so the transcript says what happened instead of leaving a dead end that looks like a finished turn.
+import { lastTurnQuestion } from './agent.js';
+
+test('the real ending that stopped this build is recognised as a question', () => {
+  const entries = [{ kind: 'text', text: 'The music bed is made: a 71-second dark trap instrumental.\n\nReady for me to start sourcing the pictures and building the edit?' }];
+  assert.equal(lastTurnQuestion(entries), 'Ready for me to start sourcing the pictures and building the edit?');
+});
+
+test('a question inside a reply that then carries on is not a question to answer', () => {
+  assert.equal(lastTurnQuestion([{ kind: 'text', text: 'Is it long enough? The rest is done and rendered.' }]), null);
+  assert.equal(lastTurnQuestion([{ kind: 'text', text: 'I picked a warm documentary voice. Nothing else was needed.' }]), null);
+});
+
+test('nothing to judge is not a question', () => {
+  assert.equal(lastTurnQuestion([{ kind: 'tool', text: 'read' }]), null);
+  assert.equal(lastTurnQuestion([{ kind: 'text', text: '' }]), null);
+  assert.equal(lastTurnQuestion(null), null);
+  assert.equal(lastTurnQuestion([]), null);
+  // a long paragraph that happens to end in "?" is a summary, not a direct ask
+  assert.equal(lastTurnQuestion([{ kind: 'text', text: 'x '.repeat(200) + 'Shall I go ahead?' }]), null);
 });

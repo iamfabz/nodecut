@@ -47,6 +47,12 @@ export function briefMarkdown(name, brief, routed, stamp) {
     '',
     'Then fill in the beats and save them as `plan.json` (`hub_plan` does this). The film is built from the plan.',
     '',
+    '## How this film is made',
+    '',
+    'This is an autonomous build. Work the whole film through without stopping to ask a question: make each decision',
+    '(voice, music, shots, lengths, mediums), note it in one line, and carry on. A missing key, a tool that has failed twice',
+    'or a missing file is the only thing that stops you — report it as an error in your reply, not as a question.',
+    '',
   ].join('\n');
 }
 
