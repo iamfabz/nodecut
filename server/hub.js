@@ -32,6 +32,11 @@ import * as tweaksApi from './tweaks.js';
 import * as contactSheet from './contactsheet.js';
 import * as gen from './gen.js';
 import * as genapi from './genapi.js';
+import * as editorV1 from './editor-v1.js';
+import * as editorV1Bridge from './editor-v1-bridge.js';
+// `const { editorV1 } = await readBody(req)` below shadows the module in that scope, so the module is reached through one
+// alias everywhere it is called. A shadowing bug here fails at request time, which is the worst place to find it.
+const ev1 = editorV1;
 import * as elevenlabs from './elevenlabs.js';
 import { openFile } from './open-file.js';
 import { transcript } from './transcript.js';
@@ -126,7 +131,7 @@ route('POST', '/api/scan', (req, url) => { if (url.searchParams.get('soft')) ret
 // New blank film: copies templates/new-film into the first watched films folder. The folder is the project, so this is the
 // only place the hub writes a project on the user's behalf. Names are reduced to a safe folder name and never escape the root.
 route('POST', '/api/projects/new', async req => {
-  const { name, brief } = await readBody(req);
+  const { name, brief, editorV1, sourceVideo } = await readBody(req);
   const raw = String(name == null ? '' : name).trim();
   if (!raw) throw Object.assign(new Error('Give the film a name'), { code: 400 });
   // The brief is required, and it is the point of the dialog: it is what the film is for. A folder with no brief is a
@@ -134,6 +139,17 @@ route('POST', '/api/projects/new', async req => {
   const b = cleanBrief(brief);
   if (!b.ok) throw Object.assign(new Error(b.error), { code: 400 });
   const theBrief = b.brief;
+  // Editor V1 is an EDITOR: it takes a recording and cuts it. That is the whole gate, and it is enforced here rather than
+  // only in the dialog, because a request is not the dialog. Asking for it with nothing to edit is refused with the reason,
+  // never silently downgraded to a blank film — a person who picks an editor and gets a blank folder thinks it worked.
+  const wantEditor = editorV1 === true || editorV1 === 'true';
+  const hasVideo = !!(sourceVideo && typeof sourceVideo === 'object' && sourceVideo.data);
+  if (wantEditor && !hasVideo) throw Object.assign(new Error('Editor V1 needs a source video. Upload the recording to edit, or create a blank film instead.'), { code: 400 });
+  if (wantEditor) {
+    const d = ev1.detect();
+    if (!d.usable) throw Object.assign(new Error(d.reason || 'Editor V1 is not available on this computer.'), { code: 409 });
+    if (!ev1.isSourceVideo(sourceVideo.name)) throw Object.assign(new Error('Editor V1 needs a video file: MP4, MOV, MKV, M4V, WEBM or AVI.'), { code: 400 });
+  }
   // one folder name: no separators, no dot-prefixed or dot-only names, nothing Windows/macOS refuse
   const folder = folderName(raw);
   if (!folder) throw Object.assign(new Error('That name cannot be used for a folder'), { code: 400 });
@@ -144,6 +160,48 @@ route('POST', '/api/projects/new', async req => {
   if (!isInside(dest, root)) throw Object.assign(new Error('That name cannot be used for a folder'), { code: 400 });
   const template = path.join(HUB_DIR, 'templates', 'new-film');
   if (!fs.existsSync(template)) throw Object.assign(new Error('The new-film template is missing from the NodeCut folder'), { code: 500 });
+
+  // ---- Editor V1: the skill builds the project, because only it knows what an edit needs --------------------------------
+  // new-video.sh creates the folder, lays out assets/, media/, out/ and kit.json, re-times the camera and extracts the
+  // voice. Reproducing that here would be a second implementation to keep in step, so this branch does not try: it saves
+  // the recording, lets the skill make the project in the films folder, and then adds only what NodeCut owns (the brief
+  // and the .gitignore). A film labelled Editor V1 that does not carry the skill's layout is not an Editor V1 film.
+  if (wantEditor) {
+    if (fs.existsSync(dest)) throw Object.assign(new Error(`A project called "${folder}" already exists`), { code: 409 });
+    // the recording goes to a scratch name first: the skill hard-links it inside the project, so it must outlive the call
+    const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-ev1-'));
+    const stage = path.join(stageDir, path.basename(String(sourceVideo.name)).replace(/[\\/:*?"<>|]/g, '_'));
+    let editor = null;
+    try {
+      const dec = /^data:[\w.+-]+\/[\w.+-]+;base64,([A-Za-z0-9+/=]+)$/.exec(String(sourceVideo.data || ''));
+      if (!dec) throw Object.assign(new Error('That file did not arrive. Try picking it again.'), { code: 400 });
+      fs.writeFileSync(stage, Buffer.from(dec[1], 'base64'));
+      const made = await ev1.makeProject(stage, folder, { dir: root });
+      if (!made.ok) throw Object.assign(new Error('Editor V1 could not start the edit: ' + String(made.stderr || made.stdout || '').trim().slice(-400)), { code: 500 });
+      if (!fs.existsSync(dest)) throw Object.assign(new Error('Editor V1 did not create the project folder. Check the films folder and try again.'), { code: 500 });
+      try {
+        fs.writeFileSync(path.join(dest, '.gitignore'),
+          '# A film is a project, not part of an app\'s source code.\n' +
+          '# NodeCut writes renders, generated media and the agent conversation into this folder.\n' +
+          '*\n!.gitignore\n');
+      } catch { /* the guard is a safeguard, not a requirement */ }
+      // the source the skill kept, for the plan screen and for the agent to refer to
+      editor = { sourceVideo: path.relative(dest, path.join(dest, 'assets', 'media')), root };
+    } catch (e) {
+      try { fs.rmSync(dest, { recursive: true, force: true }); } catch { }
+      throw Object.assign(e.code ? e : Object.assign(new Error(e.message), { code: 500 }));
+    } finally {
+      try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { }
+    }
+    let routed = null;
+    try { routed = writeBrief(dest, folder, theBrief); } catch { /* the edit is still usable without it */ }
+    let p = null; try { await scan(); } catch { }
+    p = index().projects.find(it => it.path === dest) || null;
+    if (!p) throw Object.assign(new Error('The edit was created but NodeCut could not open it yet; press Rescan'), { code: 500 });
+    const started = startFilm(p.id, p.path, { editor });
+    return { ...lite(p), route: routed, started, editor };
+  }
+
   try { fs.mkdirSync(dest); }   // throws EEXIST: never overwrite a film that is already there
   catch (e) {
     if (e.code === 'EEXIST') throw Object.assign(new Error(`A project called "${folder}" already exists`), { code: 409 });
@@ -171,6 +229,9 @@ route('POST', '/api/projects/new', async req => {
     try { fs.rmSync(dest, { recursive: true, force: true }); } catch { }
     throw Object.assign(new Error('Could not write the brief: ' + (e.code || e.message)), { code: 500 });
   }
+  // An Editor V1 film never reaches this point: it is built by the skill above and returns early. The blank starter is the
+  // only thing that needs the template copy.
+  let edited = null;
   // index it now so the new card is there the moment the page redraws (a full scan walks every root, so ask for one)
   let p = null; try { await scan(); } catch { }
   p = index().projects.find(it => it.path === dest) || null;
@@ -178,16 +239,42 @@ route('POST', '/api/projects/new', async req => {
   // Creating a film is the start of the work, not the end of it. The brief on disk is what the agent builds from, so the
   // first turn is sent here rather than waiting for someone to type "go". A failure to start is reported, never swallowed:
   // a film that looks created and is silently doing nothing is the worst outcome for the person who just described it.
-  const started = startFilm(p.id, p.path);
-  return { ...lite(p), route: routed, started };
+  const started = startFilm(p.id, p.path, { editor: edited });
+  return { ...lite(p), route: routed, started, editor: edited };
 });
 
-// startFilm(projectId, folder) -> { started, error? }. The opening turn of a brand-new film.
+// startFilm(projectId, folder, { editor }) -> { started, error? }. The opening turn of a brand-new film.
 // Kept in one place so the route and the retry endpoint cannot drift apart: the same words open the same film twice.
 // The brief is not passed as an argument: it is on disk in BRIEF.md, and the prompt tells the agent to read it there,
 // so there is exactly one copy of what the film is for.
-function startFilm(id, folder) {
-  const first = [
+function startFilm(id, folder, { editor = null } = {}) {
+  // An Editor V1 film is not written from a brief the way a code film is: a recording already exists and the skill's job
+  // is to cut it. The opening turn says so, and it names the tools the edit may use, because the difference between an
+  // edit that sits on the free defaults and one that uses the voice and b-roll this machine already pays for is a line of
+  // instruction — the agent will not reach for a paid tool it has not been told it may use.
+  const first = editor ? [
+    'Edit the recording in this project into an Editor V1 film.',
+    '',
+    'The recording is the one you were given: it is the only footage that is yours, and the brief in BRIEF.md says what',
+    'the film is for. Read the brief first, then use the editor-v1 skill installed on this computer (its SKILL.md is at',
+    '~/.claude/skills/editor-v1/SKILL.md; read it before you start, it is the source of truth for the style).',
+    '',
+    'Work in this order:',
+    '',
+    '1. Write the edit plan first and show it to me before building: what every line of the recording gets on screen,',
+    '   where each picture comes from, and the rights line for anything found outside this folder.',
+    '2. Build the edit with the skill\'s own scripts. Do not re-implement the renderer.',
+    '3. You may use the tools this machine already has instead of the free defaults:',
+    '   - Voice: hub_generate_audio (ElevenLabs, the key is already saved in Settings > Generation). Use it for a',
+    '     voice-over or for lines the recording does not cover. Run hub_voices and ask me which voice before you pick one.',
+    '   - Moving b-roll: hub_generate_clip (text_to_video, and image_to_video when you have a still to animate). These',
+    '     cost money per clip; price them with hub_plan and tell me the total in the plan you show me.',
+    '   - Pictures: hub_generate_image for stills, and the skill\'s own find-footage.py for public-domain material.',
+    '4. Check the result and fix what is wrong. Do not render until I have seen it and said so.',
+    '',
+    'Do not stop to ask me before starting the plan. If something is genuinely missing, decide it the way the skill would,',
+    'say what you decided in your reply, and keep going.',
+  ].join('\n') : [
     'Make this film, start to finish.',
     '',
     'The brief is in BRIEF.md and the team files it routed to are listed there. Read the brief and those files first, then',
@@ -209,12 +296,31 @@ function startFilm(id, folder) {
   }
 }
 
+// GET /api/editor-v1 — can this film be an Editor V1 edit, and why not.
+//
+// The New film dialog asks before it shows the card, so an option that cannot work is never offered. It also reports the
+// one thing that kept the cut-out off on this machine rather than letting the agent discover it by failing: PyTorch
+// publishes arm64-only wheels for macOS, so the device cannot exist on an Intel Mac.
+route('GET', '/api/editor-v1', () => {
+  const d = ev1.detect();
+  return { ...d, root: ev1.editorRoot(), rights: Object.keys(editorV1Bridge.SOURCE_RIGHTS || {}).map((k) => ({ id: k, ...editorV1Bridge.rightsFor(k) })) };
+});
+
+// POST /api/editor-v1/rights — what a planned edit would pull in, and whether any of it is not free to use.
+route('POST', '/api/editor-v1/rights', async req => {
+  const { assets } = await readBody(req);
+  return editorV1Bridge.rightsSummary(Array.isArray(assets) ? assets : []);
+});
+
 // POST /api/project/:id/agent/start-building — the same opening turn again, for a film whose agent never began (the hub
 // was restarted, or opencode was missing the first time). The new-film route returns `started: false` and the live page
 // offers this, so "nothing is happening" is a state the UI can fix rather than a dead end.
 route('POST', '/api/project/:id/agent/start-building', (req, url, { id }) => {
   const p = project(id); if (!p) throw Object.assign(new Error('Project not found'), { code: 404 });
-  const r = startFilm(id, p.path);
+  // A film made as an Editor V1 edit must be re-opened as one. Its folder carries the recording, so the fact survives a
+  // restart: the opening turn is chosen from what is on disk, not from what this process happens to remember.
+  const isEditor = fs.existsSync(path.join(p.path, 'source')) || fs.existsSync(path.join(p.path, 'build.py'));
+  const r = startFilm(id, p.path, { editor: isEditor ? { root: path.dirname(p.path) } : null });
   if (!r.started) throw Object.assign(new Error(r.error), { code: 400 });
   return agent.state(id, p.path);
 });
