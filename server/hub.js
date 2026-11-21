@@ -565,6 +565,24 @@ setInterval(async () => {
   agent.killAll();
   process.exit(0);
 }, 20e3).unref();
+
+// ---------- keeping each film's conversation short
+// A long-lived film accumulates turns until the model runs out of room mid-sentence. The turn-end hook in agent.js covers
+// the common case, but a film can sit untouched for weeks and still be over the line when it is opened again, so this
+// sweep checks every film whose agent has a remembered conversation — every 15 minutes, only while the hub is being used,
+// and never while a turn is running. Nothing is announced: a shortened conversation is housekeeping, and the person asked
+// for none of it. See compactIfNeeded() for why this goes to the OpenCode server rather than through a run.
+setInterval(() => {
+  if (GUARD_OFF || !clients.size || agent.busy()) return;   // test instances and an unwatched hub do no housekeeping
+  let list = [];
+  try { list = scan().projects || []; } catch { return; }
+  (async () => {
+    for (const p of list) {
+      if (agent.busy()) return;                               // someone started a turn while this was going: stop here
+      try { await agent.maybeCompact(p.id, p.path); } catch { }
+    }
+  })();
+}, 15 * 60e3).unref();
 // A hub that is killed by Ctrl-C or by the terminal closing must take its agent children with it, or they are reparented
 // to PID 1 and keep writing to a film with nobody watching. Same on the ordinary exit path.
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { agent.killAll(); process.exit(0); });

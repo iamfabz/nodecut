@@ -223,3 +223,304 @@ test('the stall limit is generous and configurable', () => {
   // default twenty minutes of total silence, which is stuck rather than slow
   assert.ok(STALL_MS >= 20 * 60 * 1000, 'the default stall limit should be at least 20 minutes');
 });
+
+// --- keeping the conversation short -------------------------------------------------------------------------------
+// The numbers below are real: they are what /api/session/:id/context returned for a live session before and after a
+// compaction, which is why the assertions are about shape and direction rather than invented counts.
+import { COMPACT_AT_TOKENS, sessionTokens, shouldCompact, opencodeServer, compactIfNeeded, maybeCompact } from './agent.js';
+
+test('compaction happens at 100k tokens by default, and can be moved', () => {
+  assert.equal(COMPACT_AT_TOKENS, 100_000, 'the threshold itself matters: it is what the app promises');
+  assert.equal(shouldCompact(99_999), false);
+  assert.equal(shouldCompact(100_000), true);
+  assert.equal(shouldCompact(4_000, { at: 4_000 }), true, 'an override must be obeyed');
+});
+
+test('an empty or unknown context is zero tokens, not a crash', () => {
+  for (const v of [null, undefined, [], 'nope', 42]) assert.equal(sessionTokens(v), 0);
+  assert.equal(sessionTokens([{ type: 'user' }, { type: 'idle' }]), 0, 'entries without usage claim nothing');
+});
+
+test('the context size is the last call that carried usage, not the sum of every message', () => {
+  // summing these would report 30k for a conversation whose next call is 18k
+  const ctx = [
+    { type: 'user' },
+    { type: 'assistant', tokens: { input: 5_000, output: 200, reasoning: 0, cache: { read: 1_000, write: 0 } } },
+    { type: 'user' },
+    { type: 'assistant', tokens: { input: 215, output: 3, reasoning: 0, cache: { read: 17_664, write: 0 } } },
+    { type: 'idle' },
+  ];
+  assert.equal(sessionTokens(ctx), 17_882, 'cache reads count: they are part of the prompt');
+});
+
+test('a collapsed compaction entry is the context, so it is read like any other', () => {
+  // after a compaction the whole old conversation becomes one entry. It must be measured, not skipped: skipping it would
+  // fall back to an older, smaller number and make a shortened conversation look like it grew.
+  const ctx = [{ type: 'compaction', status: 'completed', tokens: { input: 728, output: 100, reasoning: 0, cache: { read: 12_800, write: 0 } } }, { type: 'idle' }];
+  assert.equal(sessionTokens(ctx), 13_628);
+});
+
+test('the compaction server is found from the file the CLI itself reads, and never guessed', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-oc-'));
+  fs.writeFileSync(path.join(dir, 'service.json'), JSON.stringify({ url: 'http://127.0.0.1:49374/', password: 'pw123' }));
+  const s = opencodeServer({ OPENCODE_STATE_DIR: dir });
+  assert.equal(s.origin, 'http://127.0.0.1:49374', 'the trailing slash must go, or every route becomes a double slash');
+  assert.equal(Buffer.from(s.auth.replace('Basic ', ''), 'base64').toString(), 'opencode:pw123', 'user:password, base64');
+  // a directory with nothing in it must answer null rather than throw: this runs on every sweep
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-oc-empty-'));
+  assert.equal(opencodeServer({ OPENCODE_STATE_DIR: empty }), null);
+  // an explicit server wins over any file
+  assert.deepEqual(opencodeServer({ NODECUT_OPENCODE_SERVER: 'http://x:1/', NODECUT_OPENCODE_AUTH: 'abc' }), { origin: 'http://x:1', auth: 'abc' });
+});
+
+test('an unreachable server leaves the conversation alone and says why', async () => {
+  const dead = { origin: 'http://127.0.0.1:9', auth: '' };   // discard port: nothing listens
+  const r = await compactIfNeeded('ses_x', { server: dead });
+  assert.equal(r.compacted, false);
+  assert.match(r.reason, /unreachable|failed/);
+});
+
+test('a conversation under the line is never compacted, even if asked often', async () => {
+  // the fake server only answers /context, so a compaction POST would show up as an unexpected request
+  let posted = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    if (String(url).endsWith('/compact')) { posted++; return new Response('{}', { status: 200 }); }
+    return new Response(JSON.stringify({ data: [{ type: 'assistant', tokens: { input: 900, output: 10, reasoning: 0, cache: { read: 0, write: 0 } } }] }), { status: 200 });
+  };
+  try {
+    const r = await compactIfNeeded('ses_small', { server: { origin: 'http://fake', auth: '' }, at: 100_000 });
+    assert.equal(r.compacted, false);
+    assert.equal(r.tokensBefore, 910);
+    assert.equal(posted, 0, 'under the line means the model is not called at all');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('over the line it asks for one compaction and records it as accepted', async () => {
+  let posted = 0, forced = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (u.endsWith('/compact')) {
+      posted++;
+      assert.equal(opts.method, 'POST');
+      assert.equal(JSON.parse(opts.body).delivery, 'queue', 'queue, not steer: nothing is mid-turn here');
+      return new Response('{}', { status: 200 });
+    }
+    // before: over the line; after: the summary plus preamble, which is not necessarily smaller
+    const tokens = forced++ === 0 ? { input: 90_000, output: 900, reasoning: 0, cache: { read: 10_000, write: 0 } } : { input: 728, output: 100, reasoning: 0, cache: { read: 12_800, write: 0 } };
+    return new Response(JSON.stringify({ data: [{ type: 'assistant', tokens }] }), { status: 200 });
+  };
+  try {
+    const r = await compactIfNeeded('ses_big', { server: { origin: 'http://fake', auth: '' }, at: 100_000 });
+    assert.equal(posted, 1);
+    assert.equal(r.compacted, true);
+    assert.equal(r.tokensBefore, 100_900);
+    assert.equal(r.tokensAfter, 13_628);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('a refused compaction is reported as refused, and a second try straight after is throttled', async () => {
+  const realFetch = globalThis.fetch;
+  let phase = 'refuse', posted = 0;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith('/compact')) { posted++; return new Response('{"message":"Expected object"}', { status: 400 }); }
+    return new Response(JSON.stringify({ data: [{ type: 'assistant', tokens: { input: 100_000, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }] }), { status: 200 });
+  };
+  try {
+    const first = await compactIfNeeded('ses_refused', { server: { origin: 'http://fake', auth: '' } });
+    assert.equal(first.compacted, false);
+    assert.equal(first.reason, 'compact refused');
+    phase = 'ok';
+    const again = await compactIfNeeded('ses_refused', { server: { origin: 'http://fake', auth: '' } });
+    assert.equal(again.compacted, false);
+    assert.equal(again.reason, 'recently tried');
+    assert.equal(posted, 1, 'a refused compaction must not be retried in a loop: every try is a model call');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('maybeCompact does nothing while a turn is running', async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-mc-'));
+  // no run in this folder, so the guard has to come from something else: an unreachable server still proves it is called
+  const r = await maybeCompact('no-such-project', folder);
+  assert.equal(r && r.compacted, false);
+});
+
+test('a compaction leaves a record in the film folder but nothing in the chat', async () => {
+  // A real HTTP server on a random port, not a patched global fetch: `compactIfNeeded` builds a URL from the server it is
+  // given, so this exercises the same code path the hub does, including the body it sends.
+  const http = await import('node:http');
+  let posted = 0;
+  const srv = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.endsWith('/compact')) {
+      posted++;
+      let body = '';
+      req.on('data', d => { body += d; });
+      req.on('end', () => {
+        assert.equal(JSON.parse(body).delivery, 'queue', 'queue, not steer: nothing is mid-turn here');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"data":{"id":"msg_probe","type":"compaction"}}');
+      });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: [{ type: 'assistant', tokens: { input: 120_000, output: 50, reasoning: 0, cache: { read: 0, write: 0 } } }] }));
+  });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const origin = 'http://127.0.0.1:' + srv.address().port;
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-record-'));
+  writeMeta(folder, { sessionId: 'ses_record_test', entries: [{ kind: 'you', text: 'make the intro shorter' }] });
+  let events = 0;
+  // the hub reaches the server through the environment, so the whole entry point can run end to end here
+  const savedUrl = process.env.NODECUT_OPENCODE_SERVER;
+  process.env.NODECUT_OPENCODE_SERVER = origin;
+  try {
+    const r = await maybeCompact('proj-record', folder, { onEvent: () => { events++; } });
+    assert.equal(posted, 1);
+    assert.equal(r.compacted, true);
+    assert.equal(r.tokensBefore, 120_050);
+    assert.equal(events, 1, 'the tab is told to redraw the state, not to print anything in the chat');
+  } finally {
+    await new Promise(r => srv.close(r));
+    if (savedUrl === undefined) delete process.env.NODECUT_OPENCODE_SERVER; else process.env.NODECUT_OPENCODE_SERVER = savedUrl;
+  }
+  // the chat itself is untouched: compaction is not a message, and a person must never see housekeeping in it
+  const meta = readMeta(folder);
+  assert.equal(meta.entries.length, 1, 'the conversation must not gain an entry for a compaction');
+  assert.equal(meta.compactions, 1, 'but the film knows it happened');
+  const ledger = fs.readFileSync(path.join(folder, 'AGENT-COMPACT.md'), 'utf8');
+  assert.match(ledger, /conversation shortened/, 'a person reading the folder can see why the earliest turns are gone');
+});
+
+
+// --- a damaged conversation, and the three ways the tab used to go quiet -----------------------------------------
+// Every case here is the shape of a real failure seen on this machine, not an invented one.
+import { brokenTailIds, lastGoodId, sessionIsBroken, healSession, resetShellEnv } from './agent.js';
+
+test('a reply that was cut off is recognised as the damaged end of a conversation', () => {
+  const healthy = [
+    { type: 'user', id: 'u1' },
+    { type: 'assistant', id: 'a1', time: { completed: 1 }, content: [{ type: 'text', text: 'done' }] },
+    { type: 'idle', id: 'i1' },
+  ];
+  assert.deepEqual(brokenTailIds(healthy), [], 'a finished conversation is not damaged');
+
+  // the exact shape found in the film session that hung: one assistant message, never completed, empty text
+  const dead = [...healthy, { type: 'assistant', id: 'a2', time: { created: 1 }, content: [{ type: 'text', text: '' }] }];
+  assert.deepEqual(brokenTailIds(dead), ['a2']);
+  assert.equal(lastGoodId(dead), 'a1', 'the fork must end before the damaged message, never on it');
+});
+
+test('working back past several damaged entries, the fork still lands on something intact', () => {
+  const ctx = [
+    { type: 'assistant', id: 'good1', time: { completed: 1 }, content: [{ type: 'text', text: 'hi' }] },
+    { type: 'assistant', id: 'bad1', time: { created: 1 }, content: [{ type: 'text', text: '' }] },
+    { type: 'compaction', id: 'bad2', status: 'failed' },
+  ];
+  assert.deepEqual(brokenTailIds(ctx), ['bad1', 'bad2']);
+  assert.equal(lastGoodId(ctx), 'good1');
+});
+
+test('a reply that finished with tool calls and no text is normal, not damaged', () => {
+  // a turn that only ran tools is the common case; mistaking it for a broken one would fork every film on every turn
+  const ctx = [{ type: 'assistant', id: 't1', time: { completed: 1 }, content: [{ type: 'tool', name: 'read', state: { status: 'completed' } }] }];
+  assert.deepEqual(brokenTailIds(ctx), []);
+});
+
+test('damage in the middle of a conversation is history, not a reason to fork', () => {
+  // only the last message has to be intact: that is what the next turn is appended after
+  const ctx = [
+    { type: 'assistant', id: 'old-bad', time: { created: 1 }, content: [{ type: 'text', text: '' }] },
+    { type: 'user', id: 'u2' },
+    { type: 'assistant', id: 'a2', time: { completed: 1 }, content: [{ type: 'text', text: 'fine' }] },
+    { type: 'idle', id: 'i2' },
+  ];
+  assert.deepEqual(brokenTailIds(ctx), []);
+});
+
+test('nothing to check is not damage, and an unreachable server never blocks a run', async () => {
+  assert.deepEqual(brokenTailIds(null), []);
+  assert.deepEqual(brokenTailIds([]), []);
+  assert.equal(lastGoodId(null), null);
+  const r = await sessionIsBroken('ses_x', { server: { origin: 'http://127.0.0.1:9', auth: '' } });
+  assert.equal(r.broken, false, 'a server that cannot be reached must let the run go ahead as it always did');
+});
+
+test('an unreachable server is not "healed", so nothing is rewritten', async () => {
+  const r = await healSession('ses_x', { server: { origin: 'http://127.0.0.1:9', auth: '' } });
+  assert.equal(r.healed, false);
+  assert.equal(r.sessionId, 'ses_x', 'the film keeps the session it had');
+});
+
+// --- an exit code is a verdict, and it used to be thrown away -----------------------------------------------
+// `code === 0 && !r.error ? 'done' : (r.error ? 'failed' : 'done')` decided BOTH branches of the false case as 'done',
+// so a CLI that died without printing an error was recorded as a finished job. This drives that path for real.
+test('a run that dies with a non-zero exit is a failure, even when it prints nothing', async () => {
+  // PATH points at a directory holding a fake `opencode` that exits 3 in silence, which is the exact shape of the bug
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-fakebin-'));
+  const fake = path.join(bin, 'opencode');
+  fs.writeFileSync(fake, '#!/bin/sh\nexit 3\n', { mode: 0o755 });
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-exitcode-'));
+  const savedPath = process.env.PATH;
+  const savedServer = process.env.OPENCODE_STATE_DIR;
+  process.env.PATH = bin + ':' + savedPath;
+  process.env.NODECUT_KEEP_PATH = '1';
+  resetShellEnv();   // the PATH above is the one the child must see
+  // no reachable server: the pre-flight check must stay out of the way of this test
+  process.env.OPENCODE_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-exitcode-state-'));
+  try {
+    const r = start('p-exitcode', folder, 'do the thing');
+    assert.equal(r.started, true);
+    // wait for the child to exit and the close handler to run
+    await new Promise(done => {
+      const tick = () => { if (state('p-exitcode').status !== 'running') done(); else setTimeout(tick, 25); };
+      tick();
+    });
+    const s = state('p-exitcode', folder);
+    assert.equal(s.status, 'failed', 'a non-zero exit is never "done"');
+    assert.match(String(s.error), /exit code 3/);
+    const errs = s.entries.filter(e => e.kind === 'error');
+    assert.equal(errs.length, 1, 'the failure is written into the transcript exactly once');
+    // and it survives a reload, which is the half that used to be lost
+    const saved = readMeta(folder);
+    assert.ok(saved.entries.some(e => e.kind === 'error' && /exit code 3/.test(e.text)), 'the failure is on disk, not just on screen');
+  } finally {
+    process.env.PATH = savedPath;
+    delete process.env.NODECUT_KEEP_PATH;
+    resetShellEnv();
+    if (savedServer === undefined) delete process.env.OPENCODE_STATE_DIR; else process.env.OPENCODE_STATE_DIR = savedServer;
+    forget('p-exitcode');
+  }
+});
+
+test('a run that succeeds is still done, and records no invented error', async () => {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-fakebin2-'));
+  const fake = path.join(bin, 'opencode');
+  // one clean reply, then exit 0 — the ordinary case
+  fs.writeFileSync(fake, '#!/bin/sh\ncat <<\'J\'\n{"type":"text","timestamp":1,"sessionID":"ses_1","part":{"id":"p1","type":"text","text":"All done."}}\n{"type":"step_finish","timestamp":2,"sessionID":"ses_1"}\nJ\nexit 0\n', { mode: 0o755 });
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-exitok-'));
+  const savedPath = process.env.PATH;
+  const savedServer = process.env.OPENCODE_STATE_DIR;
+  process.env.PATH = bin + ':' + savedPath;
+  process.env.NODECUT_KEEP_PATH = '1';
+  resetShellEnv();   // the PATH above is the one the child must see
+  process.env.OPENCODE_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-exitok-state-'));
+  try {
+    start('p-exitok', folder, 'hello');
+    await new Promise(done => {
+      const tick = () => { if (state('p-exitok').status !== 'running') done(); else setTimeout(tick, 25); };
+      tick();
+    });
+    const s = state('p-exitok', folder);
+    assert.equal(s.status, 'done');
+    assert.equal(s.error, null);
+    assert.ok(s.entries.some(e => e.kind === 'text' && /All done/.test(e.text)));
+  } finally {
+    process.env.PATH = savedPath;
+    delete process.env.NODECUT_KEEP_PATH;
+    resetShellEnv();
+    if (savedServer === undefined) delete process.env.OPENCODE_STATE_DIR; else process.env.OPENCODE_STATE_DIR = savedServer;
+    forget('p-exitok');
+  }
+});
