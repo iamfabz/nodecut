@@ -232,6 +232,11 @@ async function render() {
     a.classList.toggle('parent-on', on && a.classList.contains('sub') === false && name === 'disk');
   });
   if (cleanup) { try { cleanup(); } catch { } cleanup = null; }
+  // The watermark belongs to every page except the live preview, where a film is on screen and a mark over the picture
+  // is a defect. `~live` is the same check the router already uses to pick the live viewer, so the two can never
+  // disagree about which page is playing.
+  const wm = document.getElementById('wm');
+  if (wm) wm.classList.toggle('away', name === 'review' && args[1] === '~live');
   const main = $('#main'); main.innerHTML = '';
   const page = h('div', { class: 'page' }); main.append(page);
   try { cleanup = await (pages[name] || projectsPage)(page, ...args.map(decodeURIComponent)) || null; }

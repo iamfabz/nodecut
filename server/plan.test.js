@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { route, validate, save, read, summary, TEAM_DIR } from './plan.js';
+import { route, validate, save, read, summary, TEAM_DIR, clipQuote, pricePlan, priceLine } from './plan.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'vhplan-'));
 const beat = (o = {}) => ({ t0: 0, t1: 3, medium: 'footage', why: 'it earns its place', payoff: 'the shot', ...o });
@@ -170,4 +170,74 @@ test('force overrides the checker, never the schema', () => {
   const r = save(dir, broken, { force: true });
   assert.equal(r.ok, false);
   assert.match(r.errors.join(' '), /why/);
+});
+
+// --- generated video: a medium the planner can now choose on its own, and a price the person sees first -------------
+// Before this, `text_to_video` was a real tool but not a real medium: the plan schema had no such value, so the planner
+// physically could not say "this beat should be a generated clip". These pin the choice, the price and the guard rails.
+
+test('text_to_video is a medium the plan accepts, and a generated clip is priced before it is made', () => {
+  const plan = {
+    duration: 6,
+    beats: [
+      beat({ id: 'b1', t0: 0, t1: 3, medium: 'kinetic_type' }),
+      beat({ id: 'b2', t0: 3, t1: 6, medium: 'text_to_video', why: 'the sizzle is the point' }),
+    ],
+  };
+  const v = validate(plan);
+  assert.equal(v.ok, true, 'a generated clip beat is a valid beat: ' + v.errors.join(' '));
+  const priced = pricePlan(plan);
+  assert.equal(priced.clips, 1);
+  assert.ok(priced.total > 0, 'a clip with no price would be a clip nobody agreed to pay for');
+  assert.match(v.warnings.join(' '), /Spends about \$/, 'the spend is stated on the plan, not discovered from a bill');
+});
+
+test('a beat longer than one clip is priced as several, because half a clip is not a thing you can buy', () => {
+  assert.equal(clipQuote('text_to_video', 3).clips, 1, 'a short beat still needs one whole clip');
+  assert.equal(clipQuote('text_to_video', 5).clips, 1, 'exactly five seconds is one clip, not two');
+  assert.equal(clipQuote('text_to_video', 5.1).clips, 2);
+  assert.equal(clipQuote('text_to_video', 11).clips, 3);
+  assert.equal(clipQuote('diagram', 12).clips, 0, 'a drawn beat costs nothing and is not counted');
+});
+
+test('image_to_video and text_to_video are the same family, so alternating them is not variety', () => {
+  // The point of the family map: a film cannot fill its variety quota by alternating two generated clips.
+  const plan = {
+    beats: [
+      beat({ id: 'b1', t0: 0, t1: 3, medium: 'text_to_video' }),
+      beat({ id: 'b2', t0: 3, t1: 6, medium: 'image_to_video' }),
+      beat({ id: 'b3', t0: 6, t1: 9, medium: 'text_to_video' }),
+    ],
+  };
+  const s = summary(plan);
+  assert.match(s, /does not change medium|same medium/i, 'three generated clips in a row must read as one medium');
+});
+
+test('a plan that is mostly bought shots is flagged, and a four-clip film is called a montage', () => {
+  const many = { beats: [
+    beat({ id: 'b1', t0: 0, t1: 4, medium: 'text_to_video' }),
+    beat({ id: 'b2', t0: 4, t1: 8, medium: 'kinetic_type' }),
+    beat({ id: 'b3', t0: 8, t1: 12, medium: 'text_to_video' }),
+    beat({ id: 'b4', t0: 12, t1: 16, medium: 'diagram' }),
+    beat({ id: 'b5', t0: 16, t1: 20, medium: 'text_to_video' }),
+    beat({ id: 'b6', t0: 20, t1: 24, medium: 'motion_graphics' }),
+    beat({ id: 'b7', t0: 24, t1: 28, medium: 'text_to_video' }),
+  ] };
+  const w = validate(many).warnings.join(' ');
+  assert.match(w, /4 generated clips is a montage/);
+  assert.match(w, /More than half the beats are generated clips/);
+});
+
+test('a plan with no generated clips says nothing about money', () => {
+  const plain = { beats: [beat({ id: 'b1' }), beat({ id: 'b2', t0: 3, t1: 6, medium: 'diagram' })] };
+  const v = validate(plain);
+  assert.doesNotMatch(v.warnings.join(' '), /\$/);
+  assert.equal(priceLine(pricePlan(plain)), '', 'no clip means no line, not a line saying zero');
+});
+
+test('a food brief is routed to the notes that explain when a generated clip earns its place', () => {
+  const r = route('a short video about cooking for LinkedIn');
+  assert.equal(r.pipeline, 'food');
+  assert.ok(r.read.includes('mediums.md'), 'the generated-clip rules live in mediums.md and are always read');
+  assert.ok(r.read.includes('camera.md'), 'a cooking film is about how the food is shot');
 });

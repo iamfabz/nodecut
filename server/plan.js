@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scorePlan, gate, checkVariation, MEDIA } from '../engine-hooks/vhrisk.js';
+import { scorePlan, gate, checkVariation, MEDIA, GENERATED_MEDIA } from '../engine-hooks/vhrisk.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const TEAM_DIR = path.join(HERE, '..', 'docs', 'craft');
@@ -51,6 +51,13 @@ const KINDS = [
   {
     id: 'talking-head',
     when: /talking head|interview|presenter|to camera|vlog|testimonial/i,
+    craft: ['camera.md', 'sound.md', 'pacing.md'],
+  },
+  {
+    // Food is the case that made the clip rule necessary: the sizzle and the steam are the entire reason the beat exists,
+    // and neither can be drawn. Route it to the medium notes explicitly so the planner reads the generated-clip rules.
+    id: 'food',
+    when: /cook|recipe|food|kitchen|chef|dish|ingredient|bak(e|ing)|roast|grill|fry|sauce|coffee|barista|restaurant|menu/i,
     craft: ['camera.md', 'sound.md', 'pacing.md'],
   },
 ];
@@ -105,6 +112,17 @@ export function validate(plan) {
       warnings.push(`The plan says ${plan[k]}s but its beats end at ${prevEnd.toFixed(2)}s`);
     }
   }
+
+  // ---- generated video: priced, and kept to a minority of the film -------------------------------------------
+  // The clips are the only part of a plan that spends money, so a plan is never saved with a spend the person has not
+  // been shown. These are warnings, not errors: refusing a plan for using the feature would teach the agent to hide it.
+  const gen = beats.filter((b) => GENERATED_MEDIA.includes(b.medium));
+  if (gen.length) {
+    const priced = pricePlan(plan);
+    warnings.push(`Spends about $${priced.total.toFixed(2)} on ${priced.clips} generated clip${priced.clips === 1 ? '' : 's'} (${priced.beats.map((b) => b.id).join(', ')}). Generation runs only if Settings > Generation is on.`);
+    if (gen.length > 3) warnings.push(`${gen.length} generated clips is a montage, not a film: pick the two or three beats where the motion is the point and draw the rest.`);
+    if (gen.length > beats.length / 2) warnings.push(`More than half the beats are generated clips (${gen.length} of ${beats.length}). A film made mostly of bought shots looks bought: the drawn and typed beats are what make it yours.`);
+  }
   return { ok: errors.length === 0, errors, warnings };
 }
 
@@ -154,6 +172,48 @@ export function read(folder) {
   try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; }
 }
 
+// ---- what a plan will cost before it is built ---------------------------------------------------------------
+//
+// A generated clip is the only part of a film that spends money, and until now the agent found that out one clip at a
+// time. So a plan that uses generated video is priced as a whole, once, before the first job is submitted: the person
+// sees the total and decides, instead of discovering it from a bill.
+//
+// The prices are the published per-clip figures from genapi.js — not a guess, and not a live quote either. The real
+// spend is confirmed again when the job is submitted; this is the number a person needs to say yes or no to a plan.
+
+// clipQuote(medium, t1 - t0) -> { clips, seconds, cost } for one beat.
+//
+// A generated clip is about five seconds long, so a beat longer than that needs more than one, and a beat that is barely
+// a second still needs a whole one. Clips are counted conservatively upward: half a clip is not a thing you can buy.
+export function clipQuote(medium, duration, { t2vCost = 0.0225, i2vCost = 0.02 } = {}) {
+  if (!GENERATED_MEDIA.includes(medium)) return { clips: 0, seconds: 0, cost: 0 };
+  const d = Number.isFinite(duration) && duration > 0 ? duration : 5;
+  const clips = Math.max(1, Math.ceil(d / 5 - 1e-9));
+  const each = medium === 'text_to_video' ? t2vCost : i2vCost;
+  return { clips, seconds: d, cost: Math.round(clips * each * 10000) / 10000 };
+}
+
+// pricePlan(plan, opts) -> the total, plus the beats that make it up, so a refusal can name them.
+export function pricePlan(plan, opts = {}) {
+  const beats = (plan && Array.isArray(plan.beats)) ? plan.beats : [];
+  const rows = beats.map((b, i) => ({
+    id: b.id || `b${i + 1}`,
+    medium: b.medium,
+    ...clipQuote(b.medium, (b.t1 ?? 0) - (b.t0 ?? 0), opts),
+  })).filter((r) => r.clips > 0);
+  const total = Math.round(rows.reduce((s, r) => s + r.cost, 0) * 10000) / 10000;
+  const clips = rows.reduce((s, r) => s + r.clips, 0);
+  return { total, clips, beats: rows };
+}
+
+// priceLine(priced) -> one line a person can act on, or '' when the plan spends nothing.
+export function priceLine(priced) {
+  if (!priced || !priced.clips) return '';
+  const names = priced.beats.map((b) => `${b.id} ${b.medium === 'text_to_video' ? 't2v' : 'i2v'}`).join(', ');
+  return `Spends money: ${priced.clips} generated clip${priced.clips === 1 ? '' : 's'} ≈ $${priced.total.toFixed(2)} (${names}). `
+    + 'Generation only happens if Settings > Generation is on and the plan is under the daily cap.';
+}
+
 // summary(folder) -> the line an agent can act on: score, verdict, and the three worst problems with their fixes
 export function summary(planOrFolder) {
   const plan = typeof planOrFolder === 'string' ? read(planOrFolder) : planOrFolder;
@@ -179,5 +239,8 @@ export function summary(planOrFolder) {
   }
   const v = checkVariation(plan);
   if (!v.ok) lines.push(`Variation: ${v.issues.slice(0, 4).map((i) => i.detail).join('; ')}`);
+  // The price sits with the verdict, because it is part of deciding whether to build the plan, not a footnote to it.
+  const price = priceLine(pricePlan(plan));
+  if (price) lines.push(price);
   return lines.join('\n');
 }

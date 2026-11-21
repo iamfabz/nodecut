@@ -45,7 +45,7 @@ export function outputActions(it, { compact = false, seen = async it => {
 export function outputsPanel({ compact = false } = {}) {
   let data = null, filter = 'done', query = '', visible = 30, stopped = false, pending = null;
   const el = h('section', { class: 'recent-outputs' + (compact ? ' compact' : ''), 'aria-label': 'Recent renders' });
-  const list = h('div', { class: 'output-list', 'aria-live': 'polite' });
+  const list = h('div', { class: 'output-list' + (compact ? '' : ' grid2'), 'aria-live': 'polite' });
   const count = h('span', { class: 'sub' });
   const search = h('input', { type: 'search', placeholder: 'Search projects or files…', 'aria-label': 'Search recent renders', oninput: e => { query = e.target.value; visible = 30; draw(); } });
   const select = h('select', { 'aria-label': 'Filter by render status', onchange: e => { filter = e.target.value; visible = 30; draw(); } },

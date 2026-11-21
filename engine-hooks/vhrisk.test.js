@@ -1,7 +1,7 @@
 // Tests for vhrisk.js — the plan checker. Every case is a real failure mode this fork has shipped at least once.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scorePlan, checkVariation, gate, scanText, MEDIA, verdictFor } from './vhrisk.js';
+import { scorePlan, checkVariation, gate, scanText, MEDIA, GENERATED_MEDIA, verdictFor } from './vhrisk.js';
 
 const beat = (o = {}) => ({ t0: 0, t1: 3, medium: 'image_to_video', why: 'it earns its place', payoff: 'the jar', ...o });
 
@@ -140,5 +140,27 @@ test('verdict thresholds are the upstream ones', () => {
 });
 
 test('the medium list is the closed set the plan schema allows', () => {
-  assert.deepEqual(MEDIA, ['kinetic_type', 'diagram', 'image_to_video', 'motion_graphics', 'footage', 'chart', 'none']);
+  assert.deepEqual(MEDIA, ['kinetic_type', 'diagram', 'image_to_video', 'text_to_video', 'motion_graphics', 'footage', 'chart', 'none']);
+});
+
+test('every generated medium is one the plan knows how to build', () => {
+  // The price list and the schema have to agree: a medium that costs money but cannot be planned is a feature nobody can
+  // reach, and a medium that can be planned but has no price is a spend the person is never shown.
+  for (const m of GENERATED_MEDIA) assert.ok(MEDIA.includes(m), `${m} is priced but not plannable`);
+});
+
+test('the patterns the craft doc recommends all survive the variety checker', () => {
+  // A recommended pattern that its own checker refuses is worse than no pattern: the planner would be told to do
+  // something the next call rejects. This is the exact order the four patterns in docs/craft/mediums.md print.
+  const patterns = {
+    'reveal ladder': ['text_to_video', 'diagram', 'kinetic_type', 'motion_graphics'],
+    argument: ['kinetic_type', 'chart', 'text_to_video', 'diagram'],
+    portrait: ['text_to_video', 'motion_graphics', 'image_to_video', 'kinetic_type'],
+    recipe: ['text_to_video', 'diagram', 'kinetic_type'],
+  };
+  for (const [name, media] of Object.entries(patterns)) {
+    const beats = media.map((medium, i) => ({ id: 'b' + (i + 1), medium, t0: i * 3, t1: (i + 1) * 3, why: 'x' }));
+    const v = checkVariation(beats);
+    assert.equal(v.ok, true, `the ${name} pattern is refused: ${v.issues.map((i) => i.detail).join('; ')}`);
+  }
 });
