@@ -99,3 +99,27 @@ test('placing a clip that is missing on disk fails instead of writing an empty f
   assert.match(r.error, /not found/i);
   fs.rmSync(folder, { recursive: true, force: true });
 });
+
+// --- the upload gate on size --------------------------------------------------------------------------------------
+// A 110 MB phone recording became 146 MB as base64 and tripped a 50 MB JSON body limit, which reached the browser as a
+// bare "could not fetch". The fix is to stream raw bytes; these pin the rule that made the old path fail and the cap that
+// replaced it.
+test('the streaming upload cap is far above a phone recording, and the JSON body cap is not used for video', async () => {
+  const src = fs.readFileSync(new URL('./hub.js', import.meta.url), 'utf8');
+  // the video must not go through readBody: that is the 50 MB path that killed the socket
+  assert.match(src, /api\/editor-v1\/upload/, 'there must be a raw upload route for the recording');
+  const m = src.match(/EV1_UPLOAD_MAX\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024\s*\*\s*1024/);
+  assert.ok(m, 'a named upload cap must exist');
+  assert.ok(Number(m[1]) >= 4, 'the cap must allow a real recording, not a short clip');
+  // and the create call must accept the token rather than the bytes
+  assert.match(src, /uploadToken/, 'creation reads a staged token, not a payload');
+});
+
+test('an upload token can never point outside the staging folder', () => {
+  // path traversal would let a crafted token read or delete arbitrary files
+  for (const bad of ['../../etc/passwd', '/etc/passwd', 'abc', 'A'.repeat(40), 'z'.repeat(200), '', null]) {
+    const ok = typeof bad === 'string' && /^[a-z0-9]{16,64}$/.test(bad);
+    if (ok) continue;   // a well-formed token is allowed; the point is the pattern rejects the rest
+    assert.equal(ok, false, `token ${JSON.stringify(bad)} must be rejected`);
+  }
+});

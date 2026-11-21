@@ -1,6 +1,7 @@
 import { norm } from './util.js';
 // NodeCut server: http://127.0.0.1:7788  (UI + JSON API + server-sent events). Local only.
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -130,8 +131,7 @@ route('GET', '/api/projects', async (req, url) => {
 route('POST', '/api/scan', (req, url) => { if (url.searchParams.get('soft')) return { started: softScan(60e3) }; scan().catch(() => { }); return { started: true }; });
 // New blank film: copies templates/new-film into the first watched films folder. The folder is the project, so this is the
 // only place the hub writes a project on the user's behalf. Names are reduced to a safe folder name and never escape the root.
-route('POST', '/api/projects/new', async req => {
-  const { name, brief, editorV1, sourceVideo } = await readBody(req);
+async function createProject({ name, brief, editorV1, sourceVideo, stagedVideo = null, videoName = null }) {
   const raw = String(name == null ? '' : name).trim();
   if (!raw) throw Object.assign(new Error('Give the film a name'), { code: 400 });
   // The brief is required, and it is the point of the dialog: it is what the film is for. A folder with no brief is a
@@ -143,12 +143,16 @@ route('POST', '/api/projects/new', async req => {
   // only in the dialog, because a request is not the dialog. Asking for it with nothing to edit is refused with the reason,
   // never silently downgraded to a blank film — a person who picks an editor and gets a blank folder thinks it worked.
   const wantEditor = editorV1 === true || editorV1 === 'true';
-  const hasVideo = !!(sourceVideo && typeof sourceVideo === 'object' && sourceVideo.data);
+  // Two ways in: the small JSON request with base64 inline (only viable for a short clip), and the streamed upload that
+  // is already on disk. Either one counts as "there is a recording"; neither is required for a blank film.
+  const hasVideo = !!(stagedVideo || (sourceVideo && typeof sourceVideo === 'object' && sourceVideo.data));
+  const videoFile = stagedVideo || null;
+  const videoLabel = videoName || (sourceVideo && sourceVideo.name) || '';
   if (wantEditor && !hasVideo) throw Object.assign(new Error('Editor V1 needs a source video. Upload the recording to edit, or create a blank film instead.'), { code: 400 });
   if (wantEditor) {
     const d = ev1.detect();
     if (!d.usable) throw Object.assign(new Error(d.reason || 'Editor V1 is not available on this computer.'), { code: 409 });
-    if (!ev1.isSourceVideo(sourceVideo.name)) throw Object.assign(new Error('Editor V1 needs a video file: MP4, MOV, MKV, M4V, WEBM or AVI.'), { code: 400 });
+    if (!ev1.isSourceVideo(videoLabel)) throw Object.assign(new Error('Editor V1 needs a video file: MP4, MOV, MKV, M4V, WEBM or AVI.'), { code: 400 });
   }
   // one folder name: no separators, no dot-prefixed or dot-only names, nothing Windows/macOS refuse
   const folder = folderName(raw);
@@ -170,12 +174,16 @@ route('POST', '/api/projects/new', async req => {
     if (fs.existsSync(dest)) throw Object.assign(new Error(`A project called "${folder}" already exists`), { code: 409 });
     // the recording goes to a scratch name first: the skill hard-links it inside the project, so it must outlive the call
     const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nc-ev1-'));
-    const stage = path.join(stageDir, path.basename(String(sourceVideo.name)).replace(/[\\/:*?"<>|]/g, '_'));
+    const stage = path.join(stageDir, path.basename(String(videoLabel)).replace(/[\\/:*?"<>|]/g, '_'));
     let editor = null;
     try {
-      const dec = /^data:[\w.+-]+\/[\w.+-]+;base64,([A-Za-z0-9+/=]+)$/.exec(String(sourceVideo.data || ''));
-      if (!dec) throw Object.assign(new Error('That file did not arrive. Try picking it again.'), { code: 400 });
-      fs.writeFileSync(stage, Buffer.from(dec[1], 'base64'));
+      // which way the bytes came in decides how they get here; the skill sees one identical file either way
+      if (videoFile) fs.copyFileSync(videoFile, stage);
+      else {
+        const dec = /^data:[\w.+-]+\/[\w.+-]+;base64,([A-Za-z0-9+/=]+)$/.exec(String(sourceVideo.data || ''));
+        if (!dec) throw Object.assign(new Error('That file did not arrive. Try picking it again.'), { code: 400 });
+        fs.writeFileSync(stage, Buffer.from(dec[1], 'base64'));
+      }
       const made = await ev1.makeProject(stage, folder, { dir: root });
       if (!made.ok) throw Object.assign(new Error('Editor V1 could not start the edit: ' + String(made.stderr || made.stdout || '').trim().slice(-400)), { code: 500 });
       if (!fs.existsSync(dest)) throw Object.assign(new Error('Editor V1 did not create the project folder. Check the films folder and try again.'), { code: 500 });
@@ -241,6 +249,23 @@ route('POST', '/api/projects/new', async req => {
   // a film that looks created and is silently doing nothing is the worst outcome for the person who just described it.
   const started = startFilm(p.id, p.path, { editor: edited });
   return { ...lite(p), route: routed, started, editor: edited };
+}
+
+// The two ways a film gets created. Both run the same logic, so the rules (the gate, the folder name, the cleanup on
+// failure) cannot drift between them.
+route('POST', '/api/projects/new', async req => {
+  const { name, brief, editorV1, sourceVideo, uploadToken } = await readBody(req);
+  // a streamed upload is checked first: it is the path a real recording takes
+  if (uploadToken && editorV1) {
+    const staged = ev1StagePath(uploadToken);
+    if (!staged || !fs.existsSync(staged)) throw Object.assign(new Error('The uploaded video is no longer on disk. Choose it again.'), { code: 410 });
+    let videoName = 'recording.mov';
+    try { videoName = fs.readFileSync(staged + '.name', 'utf8').trim() || videoName; } catch { }
+    const cleanup = () => { try { fs.unlinkSync(staged); } catch { } try { fs.unlinkSync(staged + '.name'); } catch { } };
+    try { return await createProject({ name, brief, editorV1, stagedVideo: staged, videoName }); }
+    finally { cleanup(); }
+  }
+  return createProject({ name, brief, editorV1, sourceVideo });
 });
 
 // startFilm(projectId, folder, { editor }) -> { started, error? }. The opening turn of a brand-new film.
@@ -305,6 +330,49 @@ route('GET', '/api/editor-v1', () => {
   const d = ev1.detect();
   return { ...d, root: ev1.editorRoot(), rights: Object.keys(editorV1Bridge.SOURCE_RIGHTS || {}).map((k) => ({ id: k, ...editorV1Bridge.rightsFor(k) })) };
 });
+
+// POST /api/editor-v1/upload?name=<file> — raw video bytes in the body, a token back.
+//
+// A recording is far too large to carry inside a JSON body: 110 MB becomes 146 MB once base64 is applied, and the body
+// reader above refuses anything over 50 MB by killing the socket — which reaches the browser as a bare "could not fetch"
+// with nothing on screen or in the log to say why. So the video takes the same route as a large sound file: the raw bytes
+// stream straight to disk, and only a small JSON call follows.
+//
+// The upload and the create are deliberately two steps. A film folder is created only once the recording is on disk, so a
+// dropped connection cannot leave a half-made "Editor V1" project behind.
+const EV1_TMP = path.join(os.tmpdir(), 'nodecut-ev1-upload');
+export const EV1_UPLOAD_MAX = 4 * 1024 * 1024 * 1024;
+
+function ev1StagePath(token) {
+  if (!/^[a-z0-9]{16,64}$/.test(String(token || ''))) return null;
+  return path.join(EV1_TMP, token);
+}
+
+route('POST', '/api/editor-v1/upload', (req, url) => new Promise((resolve, reject) => {
+  const name = String(url.searchParams.get('name') || '').replace(/[\\/:*?"<>|]/g, '_');
+  if (!ev1.isSourceVideo(name)) return reject(Object.assign(new Error('Editor V1 needs a video: MP4, MOV, MKV, M4V, WEBM or AVI.'), { code: 400 }));
+  const token = crypto.randomBytes(18).toString('hex');
+  const file = ev1StagePath(token);
+  try { fs.mkdirSync(EV1_TMP, { recursive: true }); } catch (e) { return reject(Object.assign(new Error('Could not prepare the upload folder: ' + e.message), { code: 500 })); }
+  const out = fs.createWriteStream(file);
+  let n = 0, done = false;
+  const fail = (e) => { if (done) return; done = true; try { out.destroy(); } catch { } try { fs.unlinkSync(file); } catch { } reject(e); };
+  req.on('data', (d) => {
+    n += d.length;
+    if (n > EV1_UPLOAD_MAX) { req.destroy(); fail(Object.assign(new Error('That video is larger than 4 GB. Shorten it first.'), { code: 413 })); }
+  });
+  req.on('error', fail);
+  out.on('error', fail);
+  out.on('finish', () => {
+    if (done) return;
+    done = true;
+    if (!n) return fail(Object.assign(new Error('The video arrived empty.'), { code: 400 }));
+    // keep the real name beside the bytes: a token alone cannot be turned back into a sensible folder name
+    try { fs.writeFileSync(file + '.name', name); } catch { }
+    resolve({ token, name, bytes: n });
+  });
+  req.pipe(out);
+}));
 
 // POST /api/editor-v1/rights — what a planned edit would pull in, and whether any of it is not free to use.
 route('POST', '/api/editor-v1/rights', async req => {
