@@ -22,9 +22,18 @@ export function h(tag, attrs = {}, ...kids) {
   return el;
 }
 export async function api(path, opts = {}) {
-  const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }, body: opts.body && typeof opts.body !== 'string' ? JSON.stringify(opts.body) : opts.body });
+  // A network failure and a refusal from the server are different things, and "could not fetch" is neither: it is what
+  // the browser says when the socket dies, and it once hid a 50 MB body limit behind a toast with no reason in it. The
+  // two cases now say what happened and what to do.
+  let r;
+  try {
+    r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }, body: opts.body && typeof opts.body !== 'string' && !(opts.body instanceof Blob) ? JSON.stringify(opts.body) : opts.body });
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('That took too long and was stopped. Try again.');
+    throw new Error('The connection to NodeCut dropped. If a video was uploading it may be too large or the window closed — check that NodeCut is still running, then try again.');
+  }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || r.statusText);
+  if (!r.ok) throw new Error(j.error || `The server answered ${r.status} ${r.statusText || ''}`.trim());
   return j;
 }
 export const GB = b => !b ? '0' : b >= 1073741824 ? (b / 1073741824).toFixed(b >= 10737418240 ? 0 : 1) + ' GB' : b >= 1048576 ? Math.round(b / 1048576) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
@@ -122,25 +131,14 @@ export function newFilmBox({ existing = [], validate, editor = null } = {}) {
       const f = pick.files && pick.files[0];
       if (!f) return;
       if (!isVideo(f.name)) { err.textContent = 'That is not a video. Editor V1 needs MP4, MOV, MKV, M4V, WEBM or AVI.'; return; }
-      if (f.size > 4 * 1024 * 1024 * 1024) { err.textContent = 'That video is larger than 4 GB. Trim it first.'; return; }
-      setLocked('Reading the video…');
-      try {
-        const data = await new Promise((ok, no) => {
-          const r = new FileReader();
-          r.onload = () => ok(String(r.result || ''));
-          r.onerror = () => no(new Error('the file could not be read'));
-          r.readAsDataURL(f);
-        });
-        sourceVideo = { name: f.name, data };
-        setUnlocked(f.name);
-        err.textContent = '';
-        // attaching a recording is the strongest signal of intent there is, so the editor turns on by itself
-        if (!useEditor) toggleEditor();
-      } catch (e) {
-        sourceVideo = null; useEditor = false;
-        setLocked('Upload a source video to unlock Editor V1');
-        err.textContent = 'Could not read that video: ' + e.message;
-      }
+      if (f.size > 4 * 1024 * 1024 * 1024) { err.textContent = 'That video is larger than 4 GB. Shorten it first.'; return; }
+      // Keep the File itself. Reading it into a data URL here would make a 110 MB recording 146 MB of text before it even
+      // reached the server; it is sent as raw bytes at submit instead, and this only checks the pick is usable.
+      sourceVideo = { name: f.name, file: f };
+      setUnlocked(f.name);
+      err.textContent = '';
+      // attaching a recording is the strongest signal of intent there is, so the editor turns on by itself
+      if (!useEditor) toggleEditor();
     });
     clear.addEventListener('click', () => {
       sourceVideo = null; useEditor = false; pick.value = '';
@@ -414,10 +412,18 @@ async function projectsPage(page) {
     });
     if (!got) return;
     try {
-      const p = await api('/api/projects/new', {
-        method: 'POST',
-        body: { name: got.name, brief: got.brief, editorV1: !!got.editorV1, sourceVideo: got.sourceVideo || null },
-      });
+      const body = { name: got.name, brief: got.brief, editorV1: !!got.editorV1 };
+      // A recording is uploaded as raw bytes first. Inside a JSON body it has to be base64, which makes a 110 MB phone
+      // recording 146 MB and trips the server's 50 MB body limit — the socket dies and the browser reports "could not
+      // fetch" with no reason. Raw bytes have no such limit and no encoding cost.
+      if (got.editorV1 && got.sourceVideo && got.sourceVideo.file) {
+        toast('Uploading the video…');
+        const up = await api('/api/editor-v1/upload?name=' + encodeURIComponent(got.sourceVideo.file.name), {
+          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: got.sourceVideo.file,
+        });
+        body.uploadToken = up.token;
+      }
+      const p = await api('/api/projects/new', { method: 'POST', body });
       const r = p.route;
       const began = p.started && p.started.started;
       const why = p.started && p.started.error ? ` · ${p.started.error}` : '';
