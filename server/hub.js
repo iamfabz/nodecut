@@ -497,7 +497,10 @@ route('GET', '/api/agent/models', async () => ({ models: await agent.listModels(
 route('POST', '/api/project/:id/agent', async (req, url, { id }) => {
   const p = project(id); if (!p) throw Object.assign(new Error('Project not found'), { code: 404 });
   const { message, model } = await readBody(req);
-  const r = agent.start(id, p.path, message, { model: model || null, onEvent: () => broadcast('agent', { id }) });
+  // Every turn goes through the same model rule as the opening turn. Sending a message used to pass `model || null`, which
+  // meant a film could start on a working model and then fall straight back onto the blocked default on the next message —
+  // the exact failure this rule exists to prevent.
+  const r = agent.start(id, p.path, message, { model: model || agentModel(), onEvent: () => broadcast('agent', { id }) });
   if (!r.started) throw Object.assign(new Error(r.error), { code: 400 });
   return agent.state(id, p.path);
 });
