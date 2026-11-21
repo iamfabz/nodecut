@@ -14,19 +14,26 @@
 //   const r = scorePlan(plan);        // r.verdict, r.average, r.dimensions, r.problems
 
 // The mediums a beat can be built in. Keep in sync with the `medium` enum in the plan schema.
-const MEDIA = ['kinetic_type', 'diagram', 'image_to_video', 'motion_graphics', 'footage', 'chart', 'none'];
+const MEDIA = ['kinetic_type', 'diagram', 'image_to_video', 'text_to_video', 'motion_graphics', 'footage', 'chart', 'none'];
 
 // How different two mediums feel to a viewer. Used by the variety rule: a kinetic-type beat next to a diagram beat reads
-// as a change, an image_to_video beat next to a footage beat does not (both are moving photographs).
+// as a change, a generated text_to_video beat next to an animated still does not (both are moving photographs, both are
+// machine-made). Grouping them together on purpose keeps the generator honest: a film cannot fill its variety quota by
+// alternating generated clips, which is the machine version of the caption film.
 const MEDIUM_FAMILY = {
   kinetic_type: 'type',
   chart: 'type',
   diagram: 'graphic',
   motion_graphics: 'graphic',
   image_to_video: 'live',
+  text_to_video: 'live',
   footage: 'live',
   none: 'none',
 };
+
+// Which mediums cost money to make. The planner prices a plan before anything is generated, so a film cannot quietly
+// spend: every beat on this list contributes one clip to the pre-flight total.
+const GENERATED_MEDIA = ['image_to_video', 'text_to_video'];
 
 // scores are 0-5, not 0-1: a clamp that defaults to [0,1] silently caps every dimension at 1
 const clamp = (x, a = 0, b = 5) => Math.max(a, Math.min(b, x));
@@ -315,6 +322,7 @@ function gate(plan, opts = {}) {
 const VHRISK = {
   MEDIA,
   MEDIUM_FAMILY,
+  GENERATED_MEDIA,
   scorePlan,
   checkVariation,
   scanText,
@@ -327,4 +335,4 @@ const VHRISK = {
 // Also reachable as a global, so a classic <script> film can use it after a one-time dynamic import.
 if (typeof window !== 'undefined') window.VHRISK = VHRISK;
 export default VHRISK;
-export { MEDIA, MEDIUM_FAMILY, scorePlan, checkVariation, scanText, gate, verdictFor };
+export { MEDIA, MEDIUM_FAMILY, GENERATED_MEDIA, scorePlan, checkVariation, scanText, gate, verdictFor };

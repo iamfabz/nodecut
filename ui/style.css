@@ -100,24 +100,148 @@ body { background: transparent; }
    accent used as light. Nothing here introduces a new hue. */
 
 /* the ambient backdrop: four wide accent-lit pools and a faint grain, fixed so it does not scroll with the page.
-   Kept low-contrast on purpose — it exists to be seen THROUGH the glass, not to compete with it. */
-body::before {
-  content: ''; position: fixed; inset: -20%; z-index: -1; pointer-events: none;
+   Kept low-contrast on purpose — it exists to be seen THROUGH the glass, not to compete with it.
+
+   This now lives INSIDE the brand layer (`.wm`, below) rather than on `body`. That is the whole trick of this file:
+   the page needs a mark that paints above the backdrop but below every panel, and there was no band between them —
+   `body`'s pseudo-elements sat at -1 and `.app` sits at 1, with nothing in between. Moving the backdrop up into the
+   same band as the mark creates that band. The mark paints over the pools and is frosted by them; `.app` still paints
+   over both, so cards, rows and badges always win. Nothing about how it looks has changed. */
+/* The backdrop spans the WHOLE window — including the strip under the sidebar. It has to: the sidebar is clear glass
+   with no fill of its own, so if the pools stopped at the sidebar's edge there would be nothing behind that pane and it
+   would read as flat black. That was the regression from folding the backdrop into the brand layer. */
+.wm::after {
+  /* inset: -20% and not 0: the original backdrop was painted 20% beyond every edge so the radial pools had room to
+     spread, and shrinking it to the viewport pulled all four gradients into the top of the window and left the bottom
+     of the sidebar near-black. The percentage is part of the look, not a detail. */
+  content: ''; position: fixed; inset: -20%; z-index: 0; pointer-events: none;
   background:
     radial-gradient(58% 62% at 14% 10%, rgba(56,189,248,.22), transparent 68%),
     radial-gradient(52% 56% at 86% 16%, rgba(129,140,248,.18), transparent 70%),
     radial-gradient(64% 60% at 70% 90%, rgba(56,189,248,.16), transparent 70%),
     radial-gradient(50% 52% at 8% 86%, rgba(129,140,248,.14), transparent 72%),
-    /* a flat field under everything: faint, but it is what stops the centre of the window going to pure black
-       and leaving the panes with nothing to lift off */
     linear-gradient(rgba(72,110,150,.10), rgba(40,52,72,.10)),
     var(--canvas);
 }
 /* a whisper of grain keeps the blur from banding on large panels */
-body::after {
-  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .035;
+.wm::before {
+  content: ''; position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: .035;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+
+/* ── the brand layer ─────────────────────────────────────────────────────────────────────────────────────────────────
+   The mark and the wordmark, centred in the content column and scaled to fill it, on every page except the live preview.
+
+   THE STACK, because it is the whole reason this took several attempts:
+      html           opaque canvas
+      body           transparent
+      .wm      z:-1  this layer. Its ::after paints the ambient pools, the frost plate and the lockup paint over them,
+                     and its ::before paints the grain on top of all of it.
+      .app     z: 1  the sidebar, the page, every card and badge. Always wins. Nothing here can ever cover a control.
+   The mark had to be above the backdrop and below the panels, and there was no band between them until the backdrop
+   was moved into this layer. As a child of the sidebar it could never span the window; as a sibling at auto it painted
+   over the cards; at -1 without the backdrop moved it painted under `.app` and vanished.
+
+   GEOMETRY: it spans from the sidebar's right edge to the window's right edge, and is centred inside that box — not
+   inside the window, which would push it left under the nav. `--side-w` is the same custom property the sidebar grid
+   animates on, so the layer tracks the sidebar as it collapses without either of them being told twice.
+
+   THE SIZE: the plate fills the column (`inset`), and the lockup is sized from viewport units with `vmin` so it grows
+   with the window instead of sitting at a fixed size on a big screen. A clamp keeps it legible on a laptop and from
+   becoming a wall of type on a 4K display.
+
+   THE RESTRAINT: you asked for it big and you asked for it not to distract. Those are in tension, so the fill is
+   carried by size and the quiet by contrast: the mark is the accent at low alpha, the word is a light tint clipped out
+   of a gradient, and the frost blurs the pools behind them into a halo. Big and quiet, not big and loud. */
+/* The layer spans the full window so its backdrop can sit behind the sidebar. The MARK is confined separately, by
+   `.wm-frost` below, to the content column — one box for the atmosphere, another for the brand, because they need
+   different widths. */
+.wm {
+  position: fixed;
+  inset: 0;
+  z-index: -1;                      /* above the html canvas, below .app — the band this file exists to create */
+  pointer-events: none;             /* never a click, a hover or a selection. It is atmosphere. */
+  transition: opacity .55s ease, transform .8s cubic-bezier(.22,.61,.36,1);
+}
+/* the plate: a broad sheet of frost over the ambient pools, filling the column. Low alpha — it is a surface you see
+   the page through, not a panel the page sits on. */
+/* The plate is a soft pool of frost, not a panel. An earlier version carried a 1px border and a rounded rectangle's
+   hard edge, and on a long page that edge cut visibly across the content like a pane that had been dropped on it. Frost
+   on a window has no measurable outline, so this one has none either: the shape is carried entirely by a radial falloff
+   in its own background, so it fades to nothing before it reaches its box. */
+.wm-frost {
+  /* The content column, explicitly: from the sidebar's right edge to the window's right edge, top to bottom, centred
+     inside that box. This is what "to the right of the nav, centred" means, and it is why the mark does not drift
+     under the sidebar. `--side-w` is the same custom property the sidebar grid animates on, so the two track each
+     other as it collapses without either being told twice. */
+  position: fixed; z-index: 2;
+  top: 0; right: 0; bottom: 0;
+  left: var(--side-w, 224px);
+  display: grid; place-items: center;
+  padding: clamp(40px, 9vmin, 150px) clamp(30px, 7vmin, 110px);
+  border-radius: 50%;
+  background:
+    radial-gradient(closest-side, rgba(255,255,255,.055), rgba(255,255,255,.022) 55%, transparent 100%);
+  -webkit-backdrop-filter: blur(52px) saturate(1.2);
+  backdrop-filter: blur(52px) saturate(1.2);
+}
+/* mark above word, both scaled from the same vmin so the lockup holds its proportions at any window size */
+/* Mark and word on ONE baseline, not stacked. Stacked, at this scale, the icon read as a small ornament above a large
+   word — two objects rather than one brand. Side by side with the mark sized to the cap height of the word reads as a
+   single lockup, the way a logo and its name are meant to. */
+.wm-lockup {
+  display: flex; flex-direction: row; align-items: center;
+  gap: clamp(14px, 2.4vmin, 40px);
+  filter: drop-shadow(0 0 clamp(20px, 3.4vmin, 50px) rgba(56,189,248,.20));
+}
+.wm-mark {
+  /* sized to the word: the word is clamp(34px, 9vmin, 148px) tall at its cap, and the mark reads with it at roughly
+     one word-height. It also grows past the word on a wide window so the plate fills rather than floats. */
+  width: clamp(74px, 13vmin, 210px); height: auto; display: block; flex: 0 0 auto;
+  /* the accent, at the alpha that says "there" without saying "look at me". Inlined SVG, so `color` actually reaches
+     the strokes — an <img> would have dropped it. */
+  color: rgba(56,189,248,.40);
+}
+.wm-word {
+  font-family: var(--head);
+  font-size: clamp(34px, 9vmin, 148px);
+  font-weight: 600; letter-spacing: -0.03em; line-height: 1;
+  color: transparent;
+  /* clipped out of a light tint so the word reads as light rather than as paint. Bright enough to be obviously there,
+     dim enough that a card sitting over it still owns the eye — and the frost plate above makes the overlap read as
+     glass in front of a mark, which is the layering asked for, instead of a mark being chopped. */
+  background: linear-gradient(180deg, rgba(255,255,255,.26), rgba(255,255,255,.10));
+  -webkit-background-clip: text; background-clip: text;
+  white-space: nowrap;
+}
+/* the live preview is a film being watched. A mark over the picture is a defect, not a detail, so it steps aside — a
+   fade and a small lift rather than a hard cut, because a hard cut on navigation reads as a layout jump. */
+.wm.away { opacity: 0; transform: scale(1.015); }
+/* Respect a preference for less motion: the fade stays (it is opacity, not movement), the scale does not. */
+@media (prefers-reduced-motion: reduce) {
+  .wm { transition: opacity .2s linear; }
+  .wm.away { transform: none; }
+}
+/* Collapsed sidebar: the column is the whole window, so the layer tracks it to 0 and re-centres. Driven off :has()
+   rather than `~` because the overlay comes BEFORE .app in the DOM (it has to, to paint under it without a z-index war
+   with the page), and the general sibling combinator only matches elements that follow. :has() looks in both
+   directions, so the two can never disagree about whether the sidebar is collapsed. */
+body:has(.app.side-hidden) .wm-frost { left: 0; }
+/* A short window has no room for a lockup this large above the content — better quiet than crowding. */
+@media (max-height: 600px) {
+  .wm-mark { width: clamp(52px, 10vmin, 130px); }
+  .wm-word { font-size: clamp(26px, 5.5vmin, 76px); }
+}
+/* On a narrow window the content column is too tight for the wordmark; the mark alone still reads as the brand. */
+@media (max-width: 820px) {
+  .wm-word { display: none; }
+  .wm-mark { width: clamp(90px, 26vmin, 220px); }
+}
+
+/* The window root is lifted above the brand layer so the sidebar and the page always paint over it. Kept last in the
+   file so it cannot be beaten by a later rule elsewhere. */
+.app { position: relative; z-index: 1; }
+
 
 
 /* headings and anything that is a button/label speak Montserrat; running text stays Open Sans */
@@ -478,7 +602,40 @@ td.nowrap { white-space: nowrap; }
 .recent-outputs { margin: 12px 0 22px; }
 .recent-heading { margin: 16px 0 10px; }
 .recent-heading h2 { margin: 0; }
+/* Recent renders on the Renders page read as a 2x2 block: exactly two columns, so four renders sit in view at once
+   instead of one at a time with the rest buried below the fold. It is a hard `repeat(2, ...)` and not auto-fit on
+   purpose — auto-fit gave three narrower columns on a wide window, which is not the 2x2 that was asked for. The card
+   internals stack to one column here (icon above the text rather than beside the whole card) because at half the width
+   the 40px icon column squeezed the file name and the action row into wrapping. Scoped with `grid2` so the compact
+   panel on the project page keeps its own denser layout. */
 .output-list { display: grid; gap: 10px; margin: 10px 0; }
+.output-list.grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* on a narrow window two columns would each be too cramped to read, so the block falls back to a single column */
+@media (max-width: 900px) {
+  .output-list.grid2 { grid-template-columns: minmax(0, 1fr); }
+}
+.output-list.grid2 > .output-card { grid-template-columns: minmax(0, 1fr); }
+/* The icon shares the title's line rather than sitting on a row of its own. Stacked above the text it cost a whole
+   empty band at the top of every card, which is a lot of height to spend on a 40px square when there are two cards per
+   row. The card becomes a single-column grid whose first row holds the icon and the body side by side; the body's own
+   first line is the title, so the two land on the same baseline. */
+.output-list.grid2 > .output-card {
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 12px; row-gap: 0;
+  align-items: start;
+}
+.output-list.grid2 > .output-card .output-icon {
+  width: 30px; height: 30px; font-size: 13px; border-radius: 8px;
+  margin-top: 1px;            /* sits level with the cap height of the title beside it */
+}
+.output-list.grid2 > .output-card > .output-body { grid-column: 2; }
+.output-list.grid2 > .output-card > .output-body { min-width: 0; }
+/* Equal heights across the row, so a two-line project name does not leave a ragged bottom edge. The body is a grid so
+   the remaining rows line up between neighbours, and the action row is pushed to the bottom of every card. */
+.output-list.grid2 { align-items: stretch; }
+.output-list.grid2 > .output-card { height: 100%; align-content: start; }
+.output-list.grid2 > .output-card > .output-body { display: flex; flex-direction: column; height: 100%; }
+.output-list.grid2 > .output-card .output-actions { margin-top: auto; padding-top: 10px; }
 .output-card { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
 .output-card.isnew { border-color: #355943; }
 .output-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--green-bg); color: var(--green); font-size: 16px; }

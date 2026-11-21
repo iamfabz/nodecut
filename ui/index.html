@@ -9,6 +9,33 @@
   <link rel="stylesheet" href="/review.css">
 </head>
 <body>
+  <!-- The brand layer: the mark and the wordmark, centred in the content column and scaled to fill it, sitting above
+       the ambient backdrop and below every panel. It is a sibling of .app rather than a child so that it is not clipped
+       by the page's scroll container, and it is positioned off the sidebar's own width so it lands in the column to the
+       right of the nav and never under it. aria-hidden because it is decoration: a screen reader announcing the
+       product name inside its own product is noise.
+
+       The mark is inlined rather than an <img src="/logo-mark.svg"> because the artwork is drawn in currentColor, and a
+       replaced element like an <img> cannot inherit a CSS colour — it rendered as an invisible shape. Inlined, the one
+       `color` on .wm-mark tints the whole mark. -->
+  <div class="wm" id="wm" aria-hidden="true">
+    <div class="wm-frost">
+      <div class="wm-lockup">
+        <svg class="wm-mark" viewBox="0 0 128 128" fill="none" aria-hidden="true">
+          <rect x="27" y="35" width="74" height="58" rx="5.5" stroke="currentColor" stroke-width="3.4"/>
+          <path d="M28.7 46.5h70.6" stroke="currentColor" stroke-width="2.6"/>
+          <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <path d="M46.5 39.2v4.2"/><path d="M61 39.2v4.2"/><path d="M75.5 39.2v4.2"/><path d="M90 39.2v4.2"/>
+          </g>
+          <path d="M57 55.5l17.5 10.5L57 76.5Z" fill="currentColor"/>
+          <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <path d="M45.5 55.5v21"/><path d="M83 55.5v21"/>
+          </g>
+        </svg>
+        <span class="wm-word">NodeCut</span>
+      </div>
+    </div>
+  </div>
   <div class="app">
     <aside class="side">
       <div class="logo">
