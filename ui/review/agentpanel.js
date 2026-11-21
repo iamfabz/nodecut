@@ -276,7 +276,9 @@ export function createAgentPanel({ projectId, api, onEvent, aside = null }) {
   }
 
   async function stopRun() {
-    try { state = await api(`/api/project/${projectId}/agent`, { method: 'POST' }); } catch { }
+    // One request, and it is the stop. This used to POST to /agent first, which is the route that STARTS a turn: it was
+    // rejected for having no message, so nothing started, but the tab was asking for a run at the moment it was asking for
+    // one to end. On a tired click that is exactly how a run gets started and stopped in the same breath.
     try { await api(`/api/project/${projectId}/agent/stop`, { method: 'POST' }); } catch { }
     setTimeout(refresh, 300);
   }

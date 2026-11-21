@@ -26,6 +26,17 @@ export const STALL_MS = Math.max(1, +process.env.NODECUT_AGENT_STALL_MIN || 20) 
 // Kept for anything that imports it; a run is no longer cut short by total duration.
 export const RUN_TIMEOUT_MS = Infinity;
 
+// When a conversation gets too long, OpenCode starts running out of room to think in: the model forgets the early part
+// of the film and starts repeating itself, or the turn fails outright. Waiting for that to happen means it happens
+// mid-sentence, which is a failure the person watching can do nothing about. So the conversation is shortened on purpose
+// BEFORE it gets there: at this many tokens of conversation the film's session is compacted — OpenCode replaces the old
+// turns with its own summary and carries on in the same session, with the same memory of the film, in the same folder.
+//
+// 100k is deliberately under the smallest context windows in common use, so this works whatever model is picked rather
+// than only for the big ones. It runs between turns, while the tab is idle, and says nothing: it is housekeeping, and the
+// person asked for nothing to watch. Override with NODECUT_AGENT_COMPACT_TOKENS.
+export const COMPACT_AT_TOKENS = Math.max(10_000, +process.env.NODECUT_AGENT_COMPACT_TOKENS || 100_000);
+
 // How the Agent tab answers: short, plain, no jargon. This is a film review page, not a terminal — the person reading it
 // is deciding whether their video looks right, and a wall of technical text is noise. The preamble is re-sent every turn
 // because a session's instructions drift over a long conversation.
@@ -52,6 +63,18 @@ export const STYLE = [
   '- Never present a synthesized tone, chord bed or MIDI-style sequence as music for the film. If hub_generate_audio fails,',
   '  say what it said and stop; a cheap placeholder is worse than an honest gap.',
   '- Before a voice-over, run hub_voices and ask which voice. Do not choose one for them.',
+  '',
+  // The person should not have to ask for generated video. It is a medium the plan can choose on its own, and the moment
+  // to choose it is planning, not after the film is written. Said here too because a film can be rebuilt on a turn that
+  // never touches hub_plan, and the rule has to hold then as well.
+  'Making a film look real:',
+  '- When you plan a film, consider a generated clip for beats where the thing moving IS the point: heat, steam, liquid,',
+  '  a hand, a place, weather. Use hub_plan and choose text_to_video (no still yet) or image_to_video (you have the still).',
+  '  hub_plan prices the plan and tells the person the total. Do not ask permission separately and do not announce the',
+  '  feature: plan it, and let the price line be the thing they see. Only if generation is switched off in Settings does it',
+  '  fall back to drawn beats, and then say so in one line.',
+  '- Most beats are still not clips. If a beat could be drawn, typed or charted, it must be: a clip on a beat that did not',
+  '  need one is what makes a film look bought.',
 ].join('\n');   // an agent turn on a film can take minutes; ten is the ceiling
 export const MAX_LOG = 400;                      // transcript entries kept per run
 
@@ -89,7 +112,10 @@ export function shellEnv() {
       const shell = base.SHELL || '/bin/zsh';
       const out = execFileSync(shell, ['-ilc', 'printf %s "$PATH"'], { timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
       const p = String(out).trim();
-      if (p && p.length > 10) base.PATH = p;
+      // A caller that has deliberately set a PATH keeps it: the whole point of asking the login shell is to find a binary
+      // a GUI-launched app cannot see, and it must not overrule a PATH that was set on purpose (which is also how the
+      // tests drive a stand-in for the CLI).
+      if (p && p.length > 10 && !base.NODECUT_KEEP_PATH) base.PATH = p;
     } catch { /* a shell that will not answer: keep the inherited PATH */ }
   }
   // the places opencode actually installs, in case the shell said nothing useful
@@ -102,6 +128,10 @@ export function shellEnv() {
   envCache = base;
   return envCache;
 }
+
+// resetShellEnv(): drop the cached environment. Only a test needs this — it exists so a test can drive a stand-in CLI
+// without the first call freezing the real PATH for every later case in the same process.
+export function resetShellEnv() { envCache = null; }
 
 // the opencode binary: PATH first, then the usual install spots, so a GUI-launched hub still finds it
 export function findOpencode() {
@@ -267,11 +297,330 @@ export function state(projectId, folder = null) {
     startedAt: meta.startedAt || null,
     error: cutOff ? meta.interrupted : null,
     sessionId: meta.sessionId || sessionIdFor(projectId),
+    // housekeeping, not conversation: the tab shows nothing for it, but the film's record should be able to say it happened
+    compactions: meta.compactions || 0,
   };
 }
 
-// busy(): true while any agent is working. The hub's idle timer asks this before it closes itself — without it, a film
-// being written would be killed mid-sentence by the same rule that closes an unused window.
+// ---- keeping the conversation short -----------------------------------------------------------------------------
+// Compaction is turned over to the server OpenCode is already running. Two facts make this the right place, and both were
+// checked against the live API rather than assumed:
+//
+//   GET  /api/session/:id/context   the conversation so far, one entry per message, each carrying its `tokens`
+//   POST /api/session/:id/compact   shorten it (returns an inbox entry; works on a 200 with no body)
+//
+// Using that endpoint rather than a second `opencode run` matters in one specific way: a run would be a turn, and a turn
+// calls the model with the whole tool set — slow, billable, and able to fail in every way a normal turn can. Compaction is
+// housekeeping, so it uses the housekeeping route and touches nothing else.
+//
+// It also can't be done from `opencode run`'s own output: the CLI's stream carries no token counts. Guessing from
+// character counts would be wrong in both directions — far too eager on a film with many tool calls, too late on one with
+// a huge script or pasted image in it.
+
+// opencodeServer(): { origin, auth } for the server the CLI talks to, or null.
+//
+// The CLI does not hold a URL. It reads a running service's address and password from OpenCode's own state file
+// (~/.local/state/opencode/service.json on macOS/Linux), which is why a GUI-launched hub with nothing in its environment
+// cannot reach the server by simply spawning a command. Reading that file is how this finds the same server the CLI uses.
+// `auth` is Basic user:password, which is what the HTTP API expects. NODECUT_OPENCODE_SERVER / _AUTH override the file for
+// anyone running their own server, and OPENCODE_STATE_DIR points at a different state directory.
+export function opencodeServer(env = process.env) {
+  const url = env.NODECUT_OPENCODE_SERVER || env.OPENCODE_SERVER_URL || '';
+  const auth = env.NODECUT_OPENCODE_AUTH || env.OPENCODE_SERVER_AUTH || '';
+  if (url) return { origin: url.replace(/\/+$/, ''), auth };
+  // An explicit state directory REPLACES the defaults rather than being tried first: a caller that says where to look must
+  // not silently get the real user's server when its own directory has nothing in it. The others are tried in order.
+  const dirs = env.OPENCODE_STATE_DIR
+    ? [env.OPENCODE_STATE_DIR]
+    : [
+      path.join(os.homedir(), '.local', 'state', 'opencode'),
+      // XDG state on Linux, which is where the CLI puts it there
+      path.join(env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'opencode'),
+      path.join(os.homedir(), '.config', 'opencode'),
+      // Windows: no ~/.local, and the CLI keeps its state under APPDATA. Built only when that variable exists, so an empty
+      // one cannot turn into a path of '/opencode'.
+      ...(env.APPDATA ? [path.join(env.APPDATA, 'opencode')] : []),
+    ];
+  for (const dir of dirs) {
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(dir, 'service.json'), 'utf8'));
+      if (!j || !j.url) continue;
+      const auth = j.password ? Buffer.from('opencode:' + j.password).toString('base64') : '';
+      return { origin: String(j.url).replace(/\/+$/, ''), auth };
+    } catch { /* no file here: try the next place */ }
+  }
+  return null;
+}
+
+// sessionTokens(context): how full the conversation is, in tokens — the size of the next call, not the sum of every turn.
+//
+// `context` is the array from /context, and it is NOT a list of conversation messages: it is what will be sent as context,
+// so an old compaction and the summary that replaced everything before it collapse into a single entry. That collapsed
+// entry is exactly the conversation as it now stands, and it carries the usage of the call that produced it — which is the
+// best evidence of size available. Measured live: after a compaction that replaced ~18k tokens of chat, this entry read
+// 20,885, slightly over the original, which is what a summary plus the tool preamble costs. So the honest reading is "how
+// big the context is now", and the honest check after compacting is "is the context bigger than before", not "smaller".
+//
+// The last entry carrying usage wins. Every message would be counted once per turn if they were summed, which would
+// report a conversation as full when it is a small fraction of that.
+export function sessionTokens(context) {
+  if (!Array.isArray(context) || !context.length) return 0;
+  for (let i = context.length - 1; i >= 0; i--) {
+    const t = context[i] && context[i].tokens;
+    if (t && typeof t.input === 'number') {
+      const total = (t.input || 0) + (t.output || 0) + (t.cache?.read || 0) + (t.cache?.write || 0);
+      if (total > 0) return total;
+    }
+  }
+  return 0;
+}
+
+// shouldCompact(tokens, { at }) -> whether this conversation is over the line. Pure, so the rule is stated once and tested.
+export function shouldCompact(tokens, { at = COMPACT_AT_TOKENS } = {}) {
+  return Number.isFinite(tokens) && tokens >= at;
+}
+
+// GET and POST against the OpenCode server, with a timeout and the same Basic auth the CLI uses. Small on purpose: this
+// file needs exactly two routes and does not want a client.
+async function ocFetch(server, method, route, { timeout = 20000, body = undefined } = {}) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeout);
+  try {
+    const headers = {};
+    if (server.auth) headers.Authorization = 'Basic ' + server.auth;
+    let payload;
+    if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
+    const res = await fetch(server.origin + route, { method, headers, body: payload, signal: ctl.signal });
+    const text = await res.text();
+    let json = null; try { json = text ? JSON.parse(text) : null; } catch { }
+    return { ok: res.ok, status: res.status, json, body: text };
+  } finally { clearTimeout(timer); }
+}
+
+const compactedAt = new Map();   // sessionId -> ms of the last compaction attempt, so one session is not retried in a loop
+
+// ---- keeping a session usable -------------------------------------------------------------------------------------
+// A conversation can be left with a broken message at its end, and when it is, every later turn in that film hangs: the
+// CLI produces no output at all, starts no message, and sits there until something kills it. Nothing about the prompt
+// causes it and nothing about the model does either — the same prompt in a fresh session runs in a second. It happens
+// when a run is killed mid-reply (the hub closing, Stop, a SIGKILL that cannot be caught), which leaves a half-written
+// assistant turn behind, and from then on the film's tab is dead in a way no error explains.
+//
+// Measured on a real film: 279 entries, the last one an assistant message that never completed and whose only content
+// was an empty text part. Forking that exact conversation up to the message before it — same 278 entries, same 227k tokens,
+// same model — ran first try. So the repair is: find the newest message that is intact, fork the session through it, and
+// point the film at the fork. The history is kept; only the broken tail is dropped.
+//
+// `brokenSessionIds` is the check, `healSession` is the repair. start() runs the check first and only pays for the repair
+// when something is actually wrong.
+
+// isBroken(message) -> whether this entry is a reply that cannot be continued from. One definition, used by both the
+// tail check and the fork boundary, so the two can never disagree about which message is the damaged one.
+function isBroken(m) {
+  if (!m) return true;
+  if (m.type === 'assistant') {
+    if (!m.time?.completed) return true;                                   // cut off before it finished writing
+    // A reply that finished but carries nothing at all — no text AND no tool call — is the shape left when a turn died at
+    // the moment it was written. A reply with only tool calls is normal and must not be mistaken for it.
+    if (Array.isArray(m.content) && m.content.length
+      && m.content.every(c => c.type === 'text' && !String(c.text || '').trim())) return true;
+    return false;
+  }
+  if (m.type === 'compaction' && m.status === 'failed') return true;
+  return false;
+}
+
+// brokenTailIds(context) -> the ids of trailing messages that cannot be continued from, newest last.
+//
+// The tail only: a broken message in the middle of a conversation is history, and OpenCode reads past it. It is the LAST
+// message that has to be intact, because that is what the next turn is appended after.
+export function brokenTailIds(context) {
+  if (!Array.isArray(context) || !context.length) return [];
+  const broken = [];
+  for (let i = context.length - 1; i >= 0; i--) {
+    const m = context[i];
+    // idle/system/user bookkeeping entries are not replies and are never the problem
+    if (!m || (m.type !== 'assistant' && m.type !== 'compaction')) break;
+    if (!isBroken(m)) break;
+    broken.push(m.id || '(unnamed)');
+  }
+  return broken.reverse();
+}
+
+// lastGoodId(context) -> the id of the newest message a fork can safely end on, or null.
+//
+// Safe means intact: a message that was cut off is not a place to fork from, so the search walks back past any damaged
+// entries. A message with no id cannot be named as a fork boundary, so those are skipped too rather than guessed at.
+export function lastGoodId(context) {
+  if (!Array.isArray(context)) return null;
+  for (let i = context.length - 1; i >= 0; i--) {
+    const m = context[i];
+    if (!m || !m.id) continue;
+    if (m.type !== 'assistant' && m.type !== 'compaction') continue;
+    if (isBroken(m)) continue;
+    return m.id;
+  }
+  return null;
+}
+
+// sessionIsBroken(sessionId, { server }) -> { broken, ids? , reason? }. Never throws: unreachable is not broken.
+export async function sessionIsBroken(sessionId, { server = null } = {}) {
+  const srv = server || opencodeServer();
+  if (!srv || !sessionId) return { broken: false, reason: 'no server' };
+  let ctx;
+  try { ctx = await ocFetch(srv, 'GET', '/api/session/' + encodeURIComponent(sessionId) + '/context'); }
+  catch { return { broken: false, reason: 'unreachable' }; }
+  if (!ctx.ok || !Array.isArray(ctx.json?.data)) return { broken: false, reason: 'unreachable' };
+  const ids = brokenTailIds(ctx.json.data);
+  return { broken: ids.length > 0, ids };
+}
+
+// healSession(sessionId, { server }) -> { healed, sessionId, reason? }
+//
+// Forks the conversation through its last intact message and returns the NEW session to use. The caller decides when to
+// persist it, so a film is only rewritten when start() is about to run with it.
+export async function healSession(sessionId, { server = null } = {}) {
+  const srv = server || opencodeServer();
+  if (!srv || !sessionId) return { healed: false, sessionId, reason: 'no server' };
+  let ctx;
+  try { ctx = await ocFetch(srv, 'GET', '/api/session/' + encodeURIComponent(sessionId) + '/context'); }
+  catch { return { healed: false, sessionId, reason: 'unreachable' }; }
+  if (!ctx.ok || !Array.isArray(ctx.json?.data)) return { healed: false, sessionId, reason: 'unreachable' };
+  const ids = brokenTailIds(ctx.json.data);
+  if (!ids.length) return { healed: false, sessionId, reason: 'not broken' };
+  const boundary = lastGoodId(ctx.json.data);
+  if (!boundary) return { healed: false, sessionId, reason: 'nothing to keep' };   // no history worth forking
+  let fork;
+  try {
+    fork = await ocFetch(srv, 'POST', '/api/session/' + encodeURIComponent(sessionId) + '/fork', {
+      timeout: 60000, body: { boundary: { type: 'through', messageID: boundary } },
+    });
+  } catch { return { healed: false, sessionId, reason: 'fork failed' }; }
+  const next = fork.json?.data?.id;
+  if (!fork.ok || !next) return { healed: false, sessionId, reason: 'fork failed' };
+  return { healed: true, sessionId: next, boundary, dropped: ids.length };
+}
+
+// The same two questions, asked without a promise. start() is synchronous — it must return whether a child was spawned
+// before any await could run — so the pre-flight check cannot be async. The work is the same two HTTP calls, made the
+// same way, and it is done at most once per turn. Both never throw: trouble here means the session is used as it was.
+function ocJson(srv, method, route, body) {
+  const args = ['-s', '-m', '60', '-X', method, '-H', 'Authorization: Basic ' + (srv.auth || '')];
+  if (body !== undefined) args.push('-H', 'Content-Type: application/json', '-d', JSON.stringify(body));
+  args.push(srv.origin + route);
+  const out = execFileSync('curl', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+  try { return out ? JSON.parse(out) : null; } catch { return null; }
+}
+
+// sessionIsBrokenSync(sessionId, { server }) -> true when the last message is a reply that was cut off.
+export function sessionIsBrokenSync(sessionId, { server = null } = {}) {
+  const srv = server || opencodeServer();
+  if (!srv || !sessionId) return false;
+  try {
+    const j = ocJson(srv, 'GET', '/api/session/' + encodeURIComponent(sessionId) + '/context');
+    return Array.isArray(j?.data) ? brokenTailIds(j.data).length > 0 : false;
+  } catch { return false; }
+}
+
+// healSessionSync(sessionId, { server }) -> { healed, sessionId, boundary? } and never throws.
+export function healSessionSync(sessionId, { server = null } = {}) {
+  const srv = server || opencodeServer();
+  if (!srv || !sessionId) return { healed: false, sessionId };
+  try {
+    const j = ocJson(srv, 'GET', '/api/session/' + encodeURIComponent(sessionId) + '/context');
+    const data = Array.isArray(j?.data) ? j.data : null;
+    if (!data || !brokenTailIds(data).length) return { healed: false, sessionId };
+    const boundary = lastGoodId(data);
+    if (!boundary) return { healed: false, sessionId };
+    const f = ocJson(srv, 'POST', '/api/session/' + encodeURIComponent(sessionId) + '/fork', { boundary: { type: 'through', messageID: boundary } });
+    const next = f?.data?.id;
+    return next ? { healed: true, sessionId: next, boundary } : { healed: false, sessionId };
+  } catch { return { healed: false, sessionId }; }
+}
+
+// compactIfNeeded(sessionId, { server, at, onEvent, force }) -> { compacted, tokensBefore, tokensAfter?, reason? }
+//
+// Never throws. Everything here is housekeeping: a conversation that could not be checked is a conversation that carries
+// on as it was, which is exactly what happened before this existed.
+export async function compactIfNeeded(sessionId, { server = null, at = COMPACT_AT_TOKENS, onEvent = null, force = false } = {}) {
+  const srv = server || opencodeServer();
+  if (!srv || !sessionId) return { compacted: false, reason: 'no server' };
+  let ctx;
+  try { ctx = await ocFetch(srv, 'GET', '/api/session/' + encodeURIComponent(sessionId) + '/context'); }
+  catch { return { compacted: false, reason: 'unreachable' }; }
+  if (!ctx.ok || !Array.isArray(ctx.json?.data)) return { compacted: false, reason: 'unreachable' };
+  const tokens = sessionTokens(ctx.json.data);
+  if (!force && !shouldCompact(tokens, { at })) return { compacted: false, tokensBefore: tokens };
+  // one attempt per session every two minutes: a compaction that failed must not be retried in a loop, since every try is
+  // a model call. Short enough that the next quiet moment tries again if it genuinely went wrong.
+  const last = compactedAt.get(sessionId) || 0;
+  if (!force && Date.now() - last < 120000) return { compacted: false, tokensBefore: tokens, reason: 'recently tried' };
+  compactedAt.set(sessionId, Date.now());
+  // The route requires a JSON body even though there is nothing to say in it. `queue` is the gentler of the two delivery
+  // modes: `steer` would cut into a turn that is already running, and this runs when nothing is.
+  //
+  // The status is read, not ignored. A 200 here means "accepted, will run" — the compaction itself happens afterwards, in
+  // the session's own flow — and a 400 means the request was refused outright. Measured live: two POSTs in a row returned
+  // 200 both times, and the second produced a compaction entry with status `failed`, because there was nothing left to
+  // summarise. So a 200 is the only honest verdict available from this side, and it is reported as what it is.
+  let accepted = false;
+  try { const res = await ocFetch(srv, 'POST', '/api/session/' + encodeURIComponent(sessionId) + '/compact', { timeout: 120000, body: { delivery: 'queue' } }); accepted = res.ok; }
+  catch { return { compacted: false, tokensBefore: tokens, reason: 'compact failed' }; }
+  if (!accepted) return { compacted: false, tokensBefore: tokens, reason: 'compact refused' };
+  // What the context is afterwards, for the record and so a later reader can see it was actually shortened. This is NOT
+  // the thing that decides success: a compaction leaves the summary plus the tool preamble in place, so the number after
+  // it is routinely within a few thousand of the number before it (measured: 17,882 → 20,885) even though the old turns
+  // are gone. Reading that as failure would have meant never once reporting a compaction that worked.
+  let after = null;
+  try {
+    const re = await ocFetch(srv, 'GET', '/api/session/' + encodeURIComponent(sessionId) + '/context');
+    if (re.ok && Array.isArray(re.json?.data)) after = sessionTokens(re.json.data);
+  } catch { }
+  onEvent && onEvent();
+  return { compacted: true, tokensBefore: tokens, tokensAfter: after };
+}
+
+const compacting = new Set();
+
+// maybeCompact(projectId, folder): the version the hub calls. It only runs between turns, so it can never interrupt a
+// sentence being written, and nobody is told about it — that is the requirement, not an oversight.
+export function maybeCompact(projectId, folder, { onEvent = null } = {}) {
+  const r = runs.get(projectId);
+  if (r && r.status === 'running') return Promise.resolve(null);   // mid-turn: the conversation is in use
+  if (compacting.has(projectId)) return Promise.resolve(null);      // already doing it
+  const meta = folder ? readMeta(folder) : {};
+  const sessionId = meta.sessionId || sessionIdFor(projectId);
+  compacting.add(projectId);
+  return compactIfNeeded(sessionId, { onEvent })
+    .then(res => { if (res && res.compacted) markCompacted(folder); return res; })
+    .catch(() => null)
+    .finally(() => compacting.delete(projectId));
+}
+
+// A compaction is housekeeping inside the film, and the film's own record should be able to say it happened even though
+// nothing appeared in the chat. Last done: one counter for the tab, one line for a person reading the folder.
+function markCompacted(folder) {
+  if (!folder) return;
+  let count = 1, when = new Date().toISOString();
+  try {
+    const meta = readMeta(folder);
+    count = (meta.compactions || 0) + 1;
+    writeMeta(folder, { compactions: count, lastCompactedAt: when });
+  } catch { }
+  try {
+    const file = path.join(folder, 'AGENT-COMPACT.md');
+    const line = `- ${when} · conversation shortened so it stays within the model's limit\n`;
+    if (fs.existsSync(file)) fs.appendFileSync(file, line);
+    else fs.writeFileSync(file, [
+      '# Conversation compactions',
+      '',
+      'The agent\'s chat is shortened automatically when it gets long, so the film stays inside the model\'s limit. Each',
+      'line below is one of those moments. Nothing appears in the chat for it; it is housekeeping.',
+      '',
+      line,
+    ].join('\n'));
+  } catch { }
+}
 export function busy() {
   for (const r of runs.values()) if (r.status === 'running') return true;
   return false;
@@ -337,7 +686,23 @@ export function start(projectId, folder, message, { model = null, onEvent = null
   // The session is what gives the agent the film's history. It is stable per film and stored in the project, so a run
   // days later, from a different chat, still knows what was asked and what was changed.
   const meta = readMeta(folder);
-  const sessionId = meta.sessionId || sessionIdFor(projectId);
+  const before = meta.sessionId || sessionIdFor(projectId);
+
+  // A conversation whose last message was cut off mid-reply hangs every later turn with no output and no error, so the
+  // session is checked BEFORE the turn and, if it is damaged, repaired by forking through its last intact message. The
+  // repair costs one round trip and only on a film that is actually damaged; an unreachable server changes nothing here.
+  // This is synchronous by necessity: the turn must run on the repaired session, not the dead one.
+  let sessionId = before;
+  try {
+    const bad = sessionIsBrokenSync(before);
+    if (bad) {
+      const fix = healSessionSync(before);
+      if (fix && fix.healed) {
+        sessionId = fix.sessionId;
+        try { writeMeta(folder, { sessionId }); } catch { }
+      }
+    }
+  } catch { /* any trouble here leaves the session as it was, which is what happened before this existed */ }
 
   const args = ['run', '--format', 'json', '--session', sessionId];
   if (model) args.push('-m', model);
@@ -394,18 +759,36 @@ export function start(projectId, folder, message, { model = null, onEvent = null
   });
   child.on('close', (code) => {
     clearTimeout(r.timer);   // the stall watchdog must not fire on a run that has already finished
-    if (r.status === 'running') r.status = code === 0 && !r.error ? 'done' : (r.error ? 'failed' : 'done');
+    // An exit code is a verdict, and it used to be thrown away: `code === 0 && !r.error ? 'done' : (r.error ? 'failed' :
+    // 'done')` decided BOTH branches of the false case as 'done', so a crash that printed no error text was recorded as a
+    // finished job. That is the one thing the tab must never say. Now a non-zero exit with no error of its own gets one
+    // written for it, and it lands in the transcript like any other failure.
+    if (r.status === 'running') {
+      if (code === 0) r.status = r.error ? 'failed' : 'done';
+      else {
+        r.status = 'failed';
+        if (!r.error) r.error = 'The agent stopped unexpectedly (exit code ' + code + '). Press Send to carry on from here.';
+      }
+    }
     // Keep what this run actually took, so the next estimate for this film is measured rather than guessed. Only runs
     // that ended on their own count: a stopped or cut-off run says nothing about how long the work really needs.
     const tookMs = r.startedAt ? Date.now() - r.startedAt : null;
     const past = Array.isArray(meta.runTimes) ? meta.runTimes.slice(-9) : [];
     const runTimes = tookMs && r.status !== 'stopped' ? [...past, tookMs] : past;
+    // The failure is written into the transcript before the transcript is saved, so it is there after a reload as well as
+    // on screen now. (It used to be written after the save, which is why an exit-code failure could vanish on refresh.)
+    if (r.status === 'failed' && r.error && !r.entries.some(e => e.kind === 'error' && e.text === r.error)) {
+      push(r, { kind: 'error', text: r.error });
+    }
     // keep the conversation with the film, not with this browser tab. `interrupted` is cleared here and nowhere else, so
     // its absence is proof the run ended on its own terms.
     writeMeta(folder, { sessionId, model: model || meta.model || null, startedAt: r.startedAt, entries: r.entries.slice(-MAX_LOG), runTimes });
-    if (code !== 0 && !r.error && r.status !== 'stopped') {
-      r.error = 'opencode exited with code ' + code;
-      push(r, { kind: 'error', text: r.error });
+    // Between turns is the one moment compaction is safe: nothing is mid-sentence, and the next turn is minutes away at
+    // worst. It is not awaited and its result is not shown — if it works the film simply stays inside its limit, and if it
+    // cannot it says nothing and the run happens as it did before. A failed turn is left alone: the person may be about
+    // to retry, and a compaction is not a fix for a provider error.
+    if (r.status === 'done') {
+      try { maybeCompact(projectId, folder, { onEvent: r.onEvent }); } catch { }
     }
   });
 
