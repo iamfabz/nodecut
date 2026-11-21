@@ -2,6 +2,8 @@ import { norm } from './util.js';
 // NodeCut server: http://127.0.0.1:7788  (UI + JSON API + server-sent events). Local only.
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -193,6 +195,8 @@ async function createProject({ name, brief, editorV1, sourceVideo, stagedVideo =
           '# NodeCut writes renders, generated media and the agent conversation into this folder.\n' +
           '*\n!.gitignore\n');
       } catch { /* the guard is a safeguard, not a requirement */ }
+      // The same containment a blank film gets: the edit is its own project root, so the agent works here and nowhere else.
+      try { markOwnRepo(dest); } catch { }
       // the source the skill kept, for the plan screen and for the agent to refer to
       editor = { sourceVideo: path.relative(dest, path.join(dest, 'assets', 'media')), root };
     } catch (e) {
@@ -240,6 +244,10 @@ async function createProject({ name, brief, editorV1, sourceVideo, stagedVideo =
   // An Editor V1 film never reaches this point: it is built by the skill above and returns early. The blank starter is the
   // only thing that needs the template copy.
   let edited = null;
+  // A film must be its own project root. Without this the agent tools walk UP from the film folder and find whatever
+  // repository encloses it — here, the user's home folder — and the agent then reads and edits the wrong tree entirely.
+  // An empty repository *inside* the film stops the walk at the film, which is where every film's work belongs.
+  try { markOwnRepo(dest); } catch { /* a film still works without it; the folder is just less contained */ }
   // index it now so the new card is there the moment the page redraws (a full scan walks every root, so ask for one)
   let p = null; try { await scan(); } catch { }
   p = index().projects.find(it => it.path === dest) || null;
@@ -268,11 +276,41 @@ route('POST', '/api/projects/new', async req => {
   return createProject({ name, brief, editorV1, sourceVideo });
 });
 
+// markOwnRepo(folder) -> gives the folder its own empty git repository, so nothing walks up past it.
+//
+// Why this exists: the agent tools resolve "the project" by walking up from the working folder to the nearest repository.
+// A film inside a films folder inside someone's home is very often inside a repository they did not think about (here,
+// ~ itself). The agent then treats that whole tree as its project and edits the first thing that looks relevant — which
+// was this app's own source. An empty .git in the film makes the film the root, and the walk stops where the work is.
+//
+// It is `git init` with no commit: no history, no staging, nothing for the person to clean up. If git is missing or the
+// command fails the film still works; it is simply less contained.
+export function markOwnRepo(folder) {
+  if (fs.existsSync(path.join(folder, '.git'))) return { created: false, reason: 'already a repository' };
+  // a FILM folder is never /Users/x itself (that would make the person's whole home a repo): only contain a real subfolder
+  if (path.dirname(folder) === folder || path.resolve(folder) === path.resolve(os.homedir())) return { created: false, reason: 'not a subfolder' };
+  try {
+    execFileSync('git', ['init', '-q', folder], { stdio: 'ignore', timeout: 15000 });
+    return { created: fs.existsSync(path.join(folder, '.git')) };
+  } catch (e) { return { created: false, reason: e.message }; }
+}
+
 // startFilm(projectId, folder, { editor }) -> { started, error? }. The opening turn of a brand-new film.
 // Kept in one place so the route and the retry endpoint cannot drift apart: the same words open the same film twice.
 // The brief is not passed as an argument: it is on disk in BRIEF.md, and the prompt tells the agent to read it there,
 // so there is exactly one copy of what the film is for.
 function startFilm(id, folder, { editor = null } = {}) {
+  // ---- the guard that stops this app editing itself ---------------------------------------------------------------
+  // The agent runs with `cwd: folder`, but its own tools resolve the project by walking UP to the nearest repository. A
+  // film that is not its own repo root therefore hands the agent whatever tree encloses it — on this machine that was
+  // ~, and the agent spent its first turn reading NodeCut's source instead of the recording. Before a run starts, the
+  // film is made its own root; if the folder is somehow NodeCut's own code, the turn is refused outright rather than
+  // letting an agent loose in the app.
+  const here = path.resolve(folder);
+  if (here === path.resolve(HUB_DIR) || isInside(path.resolve(HUB_DIR), here)) {
+    return { started: false, error: 'That folder is NodeCut\'s own source code, not a film. Films live in your films folder.' };
+  }
+  try { markOwnRepo(folder); } catch { }
   // An Editor V1 film is not written from a brief the way a code film is: a recording already exists and the skill's job
   // is to cut it. The opening turn says so, and it names the tools the edit may use, because the difference between an
   // edit that sits on the free defaults and one that uses the voice and b-roll this machine already pays for is a line of
@@ -313,12 +351,59 @@ function startFilm(id, folder, { editor = null } = {}) {
     'notes would, say what you decided in your reply, and keep going.',
   ].join('\n');
   try {
-    const r = agent.start(id, folder, first, { onEvent: () => broadcast('agent', { id }) });
+    const r = agent.start(id, folder, first, { model: agentModel(), onEvent: () => broadcast('agent', { id }) });
     if (r.started) { broadcast('agent', { id }); return { started: true }; }
     return { started: false, error: r.error || 'The agent did not start.' };
   } catch (e) {
     return { started: false, error: e.message || 'The agent did not start.' };
   }
+}
+
+// agentModel() -> the model a run should use, or null to let opencode choose.
+//
+// NodeCut passes nothing by default, which means it inherits opencode's own default — and that default can be a free model
+// whose provider blocks it. That is exactly what happened here: every new film opened, the first turn failed instantly
+// with a 404, and nothing on screen said the film was fine and only the model was refused.
+//
+// So a model that is known to be blocked is replaced with one that is known to work with the key already saved, rather than
+// inherited and left to fail. Only a model that is known bad is swapped: an explicit choice is always respected, and when
+// nothing is known to be wrong this returns null and opencode's own choice stands.
+const BLOCKED_MODEL = /(?::free|free)$/i;
+// The fallback, in order of preference. Each one is a model this machine already has a key for (DeepInfra is configured in
+// Settings > Generation), so the swap costs nothing and needs no setup.
+const FALLBACK_MODELS = [
+  'deepinfra/deepseek-ai/DeepSeek-V4-Pro',
+  'deepinfra/deepseek-ai/DeepSeek-V3.2',
+  'deepinfra/deepseek-ai/DeepSeek-V3.1',
+];
+export function agentModel() {
+  const chosen = config().agentDefaultModel;
+  if (chosen) return chosen;                       // an explicit choice is always respected, blocked or not
+  const d = defaultAgentModel();
+  if (!d) return null;                             // nothing to judge: let opencode decide
+  if (!BLOCKED_MODEL.test(d)) return d;            // a paid model that already works: keep using it
+  return FALLBACK_MODELS[0];                       // the configured default is a free model the provider blocks
+}
+let defaultCache = null;
+// The model opencode itself would use, read from its config. There is no stable CLI for asking, and a guessed command that
+// silently stops existing is how a fallback rots; the config file is what actually decides.
+function defaultAgentModel() {
+  if (defaultCache && Date.now() - defaultCache.at < 60 * 1000) return defaultCache.value;
+  const candidates = [
+    process.env.OPENCODE_CONFIG,
+    path.join(os.homedir(), '.config', 'opencode', 'opencode.jsonc'),
+    path.join(os.homedir(), '.config', 'opencode', 'opencode.json'),
+  ].filter(Boolean);
+  for (const f of candidates) {
+    try {
+      // the file is JSONC: comments are legal there and illegal in JSON, so they are dropped before parsing
+      const j = JSON.parse(String(fs.readFileSync(f, 'utf8')).replace(/^\s*\/\/.*$/gm, ''));
+      defaultCache = { at: Date.now(), value: j.model || null };
+      return defaultCache.value;
+    } catch { /* try the next location */ }
+  }
+  defaultCache = { at: Date.now(), value: null };
+  return null;
 }
 
 // GET /api/editor-v1 — can this film be an Editor V1 edit, and why not.

@@ -162,8 +162,19 @@ export function parseLine(line) {
   if (t === 'error') {
     const e = ev.error || {};
     const msg = e.message || (e.data && e.data.message) || 'The agent stopped.';
-    // the CLI's own words are the most useful thing on screen, so they are shown as-is, with the status if there is one
-    return { kind: 'error', text: (e.status ? e.status + ' · ' : '') + msg };
+    const head = (e.status ? e.status + ' · ' : '');
+    // A provider can refuse a model for reasons that have nothing to do with the film — most often a guardrail that blocks
+    // free models which train on your data. The raw text is a policy page, not an explanation, so a plain sentence comes
+    // first; the provider's own words stay on the line underneath, because they are the evidence when something else is
+    // behind the same status.
+    if (/guardrail|data policy|free model training|0 endpoints.*available/i.test(msg)) {
+      return { kind: 'error', text: `${head}The model is blocked by the provider, so no work could start. Free models on OpenRouter are often blocked for training on your data — pick another model in Settings > Agent and press Send. Your film and video are fine.\n${msg}` };
+    }
+    if (/no credits|insufficient|billing|payment required|402/i.test(msg)) {
+      return { kind: 'error', text: `${head}The provider says this account has no credit left. Top it up, or pick another model in Settings > Agent, then press Send. The film is fine.\n${msg}` };
+    }
+    // otherwise the CLI's words are the most useful thing on screen, shown as-is with the status if there is one
+    return { kind: 'error', text: head + msg };
   }
   return null;
 }

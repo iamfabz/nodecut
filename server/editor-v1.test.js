@@ -123,3 +123,24 @@ test('an upload token can never point outside the staging folder', () => {
     assert.equal(ok, false, `token ${JSON.stringify(bad)} must be rejected`);
   }
 });
+
+// --- a film must not hand the agent the tree above it -------------------------------------------------------------
+// The agent tools resolve the project by walking UP to the nearest repository. A film inside a home folder that happens
+// to be a repo handed the agent this app's own source, and its first turn was spent reading NodeCut instead of the
+// recording. Giving the film its own empty repo root stops the walk at the film.
+test('a film folder gets its own repository root, so nothing walks up out of it', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'ev1-outer-'));
+  // an enclosing repository, like the home folder that caused this
+  try { execFileSync('git', ['init', '-q', outer], { stdio: 'ignore' }); } catch { return; }   // no git: nothing to test
+  const film = path.join(outer, 'A film');
+  fs.mkdirSync(film, { recursive: true });
+  // without the fix the walk escapes to the enclosing repo
+  const before = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: film, encoding: 'utf8' }).trim();
+  assert.notEqual(path.resolve(before), path.resolve(film), 'precondition: the film starts inside the outer repo');
+
+  execFileSync('git', ['init', '-q', film], { stdio: 'ignore' });
+  const after = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: film, encoding: 'utf8' }).trim();
+  assert.equal(fs.realpathSync(after), fs.realpathSync(film), 'the film is now its own project root');
+  fs.rmSync(outer, { recursive: true, force: true });
+});
