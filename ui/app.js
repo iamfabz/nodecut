@@ -65,8 +65,13 @@ export function promptBox(title, { label = '', value = '', placeholder = '', okT
   });
 }
 // A new film is a name AND a brief. The brief is what the film is for, and it is required: a folder with no brief is a
-// folder somebody has to interrogate later. Returns { name, brief } or null.
-export function newFilmBox({ existing = [], validate } = {}) {
+// folder somebody has to interrogate later. Returns { name, brief, editorV1, sourceVideo } or null.
+//
+// Editor V1 is an option on this dialog and nowhere else, because it is the one kind of film that cannot start from a
+// brief alone: it needs a recording to edit. The card is present but locked until a video is attached, so the choice is
+// visible before it is possible — a person should be able to see that the editor exists and understand exactly what
+// unlocks it, rather than wonder why it appeared after they dropped a file.
+export function newFilmBox({ existing = [], validate, editor = null } = {}) {
   return new Promise(res => {
     const name = h('input', { type: 'text', placeholder: 'e.g. Spring sale 30s', style: { width: '100%' } });
     const brief = h('textarea', {
@@ -74,6 +79,81 @@ export function newFilmBox({ existing = [], validate } = {}) {
       style: { width: '100%', resize: 'vertical', font: 'inherit', lineHeight: '1.5' },
     });
     const err = h('div', { class: 'sub red', style: { minHeight: '18px' } });
+    // ---- the recorded film, and the editor that can only exist with one
+    let sourceVideo = null;      // { name, data } once a real video file is attached
+    let useEditor = false;       // only ever true while a video is attached
+    const videoName = h('span', { class: 'ev1-file' }, 'no video attached');
+    const hint = h('div', { class: 'ev1-hint' }, 'Upload a source video to unlock Editor V1');
+    const pick = h('input', { type: 'file', accept: 'video/*,.mp4,.mov,.mkv,.m4v,.webm,.avi', hidden: true });
+    const card = h('div', { class: 'ev1-card locked' },
+      h('div', { class: 'ev1-top' },
+        h('div', { class: 'ev1-title', role: 'button', tabindex: '0' }, 'Editor V1'),
+        h('div', { class: 'ev1-filewrap' }, videoName)),
+      h('div', { class: 'ev1-desc' }, 'Cuts a recording you already have into a fast documentary-style film. Needs the recording; it cannot start from a brief.'));
+    const attach = h('button', { type: 'button', class: 'ev1-attach' }, 'Choose video…');
+    const clear = h('button', { type: 'button', class: 'ev1-attach ev1-clear', hidden: true }, 'Remove');
+    card.append(h('div', { class: 'ev1-actions' }, attach, clear));
+    card.append(hint);
+
+    const isVideo = (n) => /\.(mp4|mov|mkv|m4v|webm|avi)$/i.test(String(n || ''));
+    const setLocked = (why) => {
+      card.classList.toggle('locked', true);
+      card.classList.remove('active');
+      hint.textContent = why;
+    };
+    const setUnlocked = (n) => {
+      card.classList.remove('locked');
+      videoName.textContent = n;
+      hint.textContent = 'Editor V1 will cut this recording. Click the card to use it.';
+      clear.hidden = false;
+      attach.textContent = 'Change video…';
+    };
+    const toggleEditor = () => {
+      if (!sourceVideo) return;          // a locked card cannot be selected: that is the whole gate
+      useEditor = !useEditor;
+      card.classList.toggle('active', useEditor);
+      hint.textContent = useEditor ? 'Editor V1 is on for this film. Click again to make a blank film instead.'
+        : 'Editor V1 will cut this recording. Click the card to use it.';
+    };
+    card.querySelector('.ev1-title').addEventListener('click', toggleEditor);
+    card.querySelector('.ev1-title').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEditor(); } });
+    attach.addEventListener('click', () => pick.click());
+    pick.addEventListener('change', async () => {
+      const f = pick.files && pick.files[0];
+      if (!f) return;
+      if (!isVideo(f.name)) { err.textContent = 'That is not a video. Editor V1 needs MP4, MOV, MKV, M4V, WEBM or AVI.'; return; }
+      if (f.size > 4 * 1024 * 1024 * 1024) { err.textContent = 'That video is larger than 4 GB. Trim it first.'; return; }
+      setLocked('Reading the video…');
+      try {
+        const data = await new Promise((ok, no) => {
+          const r = new FileReader();
+          r.onload = () => ok(String(r.result || ''));
+          r.onerror = () => no(new Error('the file could not be read'));
+          r.readAsDataURL(f);
+        });
+        sourceVideo = { name: f.name, data };
+        setUnlocked(f.name);
+        err.textContent = '';
+        // attaching a recording is the strongest signal of intent there is, so the editor turns on by itself
+        if (!useEditor) toggleEditor();
+      } catch (e) {
+        sourceVideo = null; useEditor = false;
+        setLocked('Upload a source video to unlock Editor V1');
+        err.textContent = 'Could not read that video: ' + e.message;
+      }
+    });
+    clear.addEventListener('click', () => {
+      sourceVideo = null; useEditor = false; pick.value = '';
+      card.classList.remove('active');
+      videoName.textContent = 'no video attached';
+      attach.textContent = 'Choose video…';
+      clear.hidden = true;
+      setLocked('Upload a source video to unlock Editor V1');
+    });
+    // An editor that is not installed is said plainly and the card stays locked, because an option that cannot run is
+    // worse than no option: the person would create the film and only then discover it.
+    if (editor && editor.usable === false) setLocked(editor.reason || 'Editor V1 is not available on this computer.');
+
     let done = false, bg = null;
     const close = v => { if (done) return; done = true; bg.remove(); res(v); };
     const submit = () => {
@@ -83,13 +163,14 @@ export function newFilmBox({ existing = [], validate } = {}) {
       if (bad) { err.textContent = bad; name.focus(); return; }
       if (!b) { err.textContent = 'Describe what the film should be. The brief is what the film is built from.'; brief.focus(); return; }
       if (b.length < 20) { err.textContent = `That is too short (${b.length} of 20 characters). Say what it is, who watches it and how long it should be.`; brief.focus(); return; }
-      close({ name: n, brief: b });
+      close({ name: n, brief: b, editorV1: useEditor && !!sourceVideo, sourceVideo: useEditor ? sourceVideo : null });
     };
     bg = h('div', { class: 'modal-bg' }, h('div', { class: 'modal modal-brief' }, h('h1', {}, 'New film'),
       h('div', { class: 'sub' }, 'A folder with that name goes into your films folder, from the NodeCut starter.'),
       h('label', { class: 'field-label' }, 'Name'), name,
       h('label', { class: 'field-label' }, 'What is this film?'), brief,
       h('div', { class: 'sub dim' }, 'The more specific, the better: what it is for, who watches it, how long, and anything it must not look like. The NodeCut team picks the pipeline and the craft files from this.'),
+      card, pick,
       err,
       h('div', { class: 'row' }, h('span', { class: 'spacer' }),
         h('button', { onclick: () => close(null) }, 'Cancel'),
@@ -322,18 +403,27 @@ async function projectsPage(page) {
   // described a film they want to watch. If the agent could not start, the live page can start it again from the button
   // the agent panel shows, so this is a hand-off, not a dead end.
   const newFilm = async () => {
+    // Editor V1's availability is asked for before the dialog opens, so the card can be locked with a reason rather than
+    // failing after the person has typed a brief and waited for a folder.
+    let editor = null;
+    try { editor = await api('/api/editor-v1'); } catch { editor = { usable: false, reason: 'NodeCut could not check whether Editor V1 is installed.' }; }
     const got = await newFilmBox({
       existing: ps.map(p => p.title),
       validate: v => /[\\/:*?"<>|]/.test(v) ? 'A folder name cannot contain \\ / : * ? " < > |' : '',
+      editor,
     });
     if (!got) return;
     try {
-      const p = await api('/api/projects/new', { method: 'POST', body: { name: got.name, brief: got.brief } });
+      const p = await api('/api/projects/new', {
+        method: 'POST',
+        body: { name: got.name, brief: got.brief, editorV1: !!got.editorV1, sourceVideo: got.sourceVideo || null },
+      });
       const r = p.route;
       const began = p.started && p.started.started;
       const why = p.started && p.started.error ? ` · ${p.started.error}` : '';
+      const isEdit = !!p.editor;
       toast(
-        began ? `Building "${p.title}" — the agent is working on it now`
+        began ? `${isEdit ? 'Editing' : 'Building'} "${p.title}" — the agent is working on it now`
         : `Created "${p.title}" but the agent did not start${why}`,
         !began,
       );
@@ -367,7 +457,7 @@ async function projectsPage(page) {
   // the button does nothing on its own when the page is gone
   const searchWrap = h('div', { class: 'toolbar-search-wrap' }, searchInput, searchBtn);
   page.append(h('div', { class: 'row toolbar' }, h('h1', {}, 'Projects'), h('span', { class: 'spacer' }),
-    h('button', { class: 'primary', onclick: newFilm, title: 'Create a blank film from the starter and open its live preview' }, '＋ New film'),
+    h('button', { class: 'primary', onclick: newFilm, title: 'Create a film from a brief — or, with a recording, an Editor V1 edit' }, '＋ New film'),
     h('div', { class: 'icongroup' }, searchWrap, rescanBtn, outputsBtn)));
   const total = ps.reduce((s, p) => s + (p.sizes?.total || 0), 0);
   const open = ps.reduce((s, p) => s + (p.notesOpen || 0), 0);

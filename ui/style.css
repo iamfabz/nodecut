@@ -559,6 +559,25 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 .modal.modal-brief { width: min(660px, 94vw); }
 .modal .field-label { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: -6px; }
 .modal.modal-brief textarea { font-family: var(--font); line-height: 1.55; min-height: 120px; }
+
+/* ---- Editor V1, on the New film dialog. Present but locked until a recording is attached, so the option is visible
+   before it is possible: a person should see that the editor exists and know exactly what unlocks it. */
+.ev1-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--panel, var(--bg)); transition: border-color .15s, background .15s; }
+.ev1-card.locked { opacity: .62; }
+.ev1-card.active { border-color: var(--accent, #6ea8fe); background: color-mix(in srgb, var(--accent, #6ea8fe) 9%, transparent); opacity: 1; }
+.ev1-top { display: flex; align-items: baseline; gap: 10px; }
+.ev1-title { font-weight: 600; font-size: var(--fs-sm); }
+.ev1-card:not(.locked) .ev1-title { cursor: pointer; }
+.ev1-card:not(.locked) .ev1-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.ev1-card:not(.locked) .ev1-title:focus-visible { outline: 2px solid var(--accent, #6ea8fe); outline-offset: 3px; border-radius: 4px; }
+.ev1-file { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev1-card.active .ev1-file { color: var(--text); }
+.ev1-desc { font-size: var(--fs-xs); color: var(--muted); line-height: 1.5; margin-top: 3px; }
+.ev1-actions { display: flex; gap: 8px; margin-top: 9px; }
+.ev1-attach { font: inherit; font-size: var(--fs-xs); padding: 4px 10px; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
+.ev1-attach:hover { border-color: var(--muted); }
+.ev1-hint { font-size: var(--fs-xs); margin-top: 8px; color: var(--muted); font-style: italic; }
+.ev1-card.active .ev1-hint { color: var(--text); font-style: normal; }
 /* the brief, read-only, in the review modal */
 .brief-body { white-space: pre-wrap; font-size: var(--fs-sm); line-height: 1.6; color: var(--text); max-height: 50vh; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .brief-meta { font-size: var(--fs-xs); color: var(--muted); }
