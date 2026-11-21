@@ -416,23 +416,34 @@ async function projectsPage(page) {
       // A recording is uploaded as raw bytes first. Inside a JSON body it has to be base64, which makes a 110 MB phone
       // recording 146 MB and trips the server's 50 MB body limit — the socket dies and the browser reports "could not
       // fetch" with no reason. Raw bytes have no such limit and no encoding cost.
+      // The gap between "uploading" and "the film is actually here" is real work — the bytes travel, the folder is laid
+      // out, the camera is re-timed and the voice extracted — so the message stays up for the whole of it and changes what
+      // it says as the work moves on. The old toast vanished while the project was still being built, which reads as
+      // "finished" at the exact moment nothing is finished yet.
       if (got.editorV1 && got.sourceVideo && got.sourceVideo.file) {
         toast('Uploading the video…');
-        const up = await api('/api/editor-v1/upload?name=' + encodeURIComponent(got.sourceVideo.file.name), {
-          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: got.sourceVideo.file,
-        });
-        body.uploadToken = up.token;
       }
+      const up = got.editorV1 && got.sourceVideo && got.sourceVideo.file
+        ? await api('/api/editor-v1/upload?name=' + encodeURIComponent(got.sourceVideo.file.name), {
+          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: got.sourceVideo.file,
+        })
+        : null;
+      if (up) { body.uploadToken = up.token; toast('Building the project and preparing the video…'); }
       const p = await api('/api/projects/new', { method: 'POST', body });
       const r = p.route;
       const began = p.started && p.started.started;
       const why = p.started && p.started.error ? ` · ${p.started.error}` : '';
       const isEdit = !!p.editor;
+      // The thumbnail is what makes the film look real on the Projects page, so the last message says the folder is ready
+      // rather than implying the whole edit is done: the agent's work is only starting at this point.
       toast(
-        began ? `${isEdit ? 'Editing' : 'Building'} "${p.title}" — the agent is working on it now`
+        began ? `${isEdit ? 'Editing' : 'Building'} "${p.title}" — project ready, the agent is working on it now`
         : `Created "${p.title}" but the agent did not start${why}`,
         !began,
       );
+      // The Projects page shows a thumbnail, and that image is the thing the person is waiting to see. Ask for it before
+      // navigating, so the page they land on already has the card rather than a grey box filling in behind them.
+      try { await fetch(`/api/thumb/${p.id}?v=${Date.now()}`).then((r) => r.arrayBuffer()); } catch { /* a missing thumbnail is not a failed film */ }
       location.hash = `#/review/${p.id}/~live`;   // straight into the preview: the film is being written as you watch
     } catch (e) { toast('Could not create the film: ' + e.message, true); }
   };
