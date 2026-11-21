@@ -46,7 +46,16 @@ export const STYLE = [
   '- Write plainly, like you are explaining to a smart 17 year old who does not code. No jargon, no file paths unless the',
   '  person needs one, no error codes without saying in plain words what went wrong.',
   '- Say what you did, or what you found, and stop. Do not explain your process.',
-  '- If something needs a decision, ask one short question instead of listing options.',
+  '',
+  // A turn that ends in a question is a turn that did half a job: the person has to come back, read it, answer it, and
+  // wait again. NodeCut runs these turns so they can be left alone, so the agent makes the calls itself and reports them.
+  // The reported decisions are what a person reviews afterwards — a log, not a prompt.
+  'Never end a turn with a question.',
+  '- Where a choice comes up, make it. Pick the voice, the music, the shot, the length, the medium. Say what you chose in',
+  '  one line so it can be judged after the fact, and carry on working.',
+  '- Only a real blocker stops you: a missing key, a tool that has failed twice, a file that is not there. Report that as',
+  '  an error at the end of your reply. Never turn a blocker into a question either — say what is broken and what you would',
+  '  need, and stop.',
   '',
   // The work in this folder is the film, not a code change to NodeCut. A film is a project the person is making, so its
   // files must never be presented as, or swept into, a commit to this app. Said on every turn because a long session drifts.
@@ -54,6 +63,7 @@ export const STYLE = [
   '- This folder is a FILM PROJECT, not part of NodeCut\'s source code. Never run git commands here: no git add, commit,',
   '  stash, checkout or branch. The person decides what to keep; nothing in this folder is a code change to the app.',
   '- Do not edit files outside this folder. The studio\'s own code lives elsewhere and is not yours to change.',
+  '- Read the brief and work forwards from it. If the brief is thin, decide what it probably means and build that.',
   '',
   // Audio used to be the one thing an agent could not make, so it synthesized a beep track in code and called it music, and
   // later asked the user to paste an API key into a .env file that the studio never reads. Both are named and closed here.
@@ -62,7 +72,8 @@ export const STYLE = [
   '  Settings > Generation. Never ask them for the key, and never tell them to put it in a .env file.',
   '- Never present a synthesized tone, chord bed or MIDI-style sequence as music for the film. If hub_generate_audio fails,',
   '  say what it said and stop; a cheap placeholder is worse than an honest gap.',
-  '- Before a voice-over, run hub_voices and ask which voice. Do not choose one for them.',
+  '- Different voices and music for each film are usually NOT wanted by the person. Default to a warm, clear documentary',
+  '  voice, and a bed that matches the film\'s mood, chosen by you. hub_voices lists what exists; read it and pick.',
   '',
   // The person should not have to ask for generated video. It is a medium the plan can choose on its own, and the moment
   // to choose it is planning, not after the film is written. Said here too because a film can be rebuilt on a turn that
@@ -177,6 +188,31 @@ export function parseLine(line) {
     return { kind: 'error', text: head + msg };
   }
   return null;
+}
+
+// ---- did the turn end in a question? ---------------------------------------------------------------------------
+// The agent is told never to end a turn with a question, because a question is a dead end for someone who left it running.
+// This is the check that notices when it happened anyway: it looks at the last thing the agent said and returns the
+// question itself, or null.
+//
+// Deliberately narrow. A reply that merely contains a "?" mid-sentence ("is it worth a re-shoot? I did both") is not a
+// question to answer, and flagging those would train the person to ignore the note. Only a short sentence at the very end
+// of the reply, ending in "?", counts.
+export function lastTurnQuestion(entries) {
+  if (!Array.isArray(entries)) return null;
+  const last = [...entries].reverse().find(e => e && (e.kind === 'text'));
+  if (!last || !last.text) return null;
+  const body = String(last.text).trim();
+  if (!body) return null;
+  const tail = body.slice(-400);
+  const para = tail.split(/\n\s*\n/).filter(p => p.trim()).pop() || tail;
+  const sentence = para.split(/(?<=[.!?])\s+/).filter(s => s.trim()).pop() || para;
+  const s = sentence.trim().replace(/\s+/g, ' ');
+  // "Looks good?" and "Ready for me to start sourcing the pictures and building the edit?" are questions.
+  // "It is 71 seconds — is that long enough? The rest is done." is not: the question is not what the reply ends on.
+  if (!/\?$/.test(s)) return null;
+  if (s.length > 240) return null;                   // a long tail is a summary, not a direct question
+  return s.replace(/\?$/, '') + '?';
 }
 
 // ---- the film's memory ----------------------------------------------------------------------------------------
@@ -790,6 +826,14 @@ export function start(projectId, folder, message, { model = null, onEvent = null
     // on screen now. (It used to be written after the save, which is why an exit-code failure could vanish on refresh.)
     if (r.status === 'failed' && r.error && !r.entries.some(e => e.kind === 'error' && e.text === r.error)) {
       push(r, { kind: 'error', text: r.error });
+    }
+    // A turn that ends in a question is the one failure the exit code cannot see: it succeeds, it just stops halfway and
+    // waits for someone. The instruction not to do that is in the prompt, but a prompt is a request, so the result is
+    // checked here and a short note is added when it happens. It is a note, not a failure: the work the turn did is real,
+    // and the person can answer it.
+    if (r.status === 'done') {
+      const asked = lastTurnQuestion(r.entries);
+      if (asked) push(r, { kind: 'meta', text: 'The agent ended this turn with a question instead of deciding it: "' + asked + '" — answer it below, and it will carry on.' });
     }
     // keep the conversation with the film, not with this browser tab. `interrupted` is cleared here and nowhere else, so
     // its absence is proof the run ended on its own terms.

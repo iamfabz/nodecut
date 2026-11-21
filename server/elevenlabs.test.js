@@ -29,6 +29,8 @@ test('a voice-over with no text or no voice is refused before any request', () =
 
 test('music: length is clamped to what the API allows', () => {
   assert.equal(musicRequest({ prompt: 'warm piano', lengthMs: 30000 }).body.music_length_ms, 30000);
+  assert.equal(musicRequest({ text: 'warm piano' }).body.prompt, 'warm piano', 'the agent tool sends the description as text');
+  assert.equal(sfxRequest({ text: 'a click' }).body.text, 'a click', 'the agent tool sends the description as text');
   assert.equal(musicRequest({ prompt: 'x', lengthMs: 10 }).body.music_length_ms, 3000, 'too short is raised to the minimum');
   assert.equal(musicRequest({ prompt: 'x', lengthMs: 10_000_000 }).body.music_length_ms, 300000, 'too long is capped');
 });

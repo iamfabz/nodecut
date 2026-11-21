@@ -49,7 +49,10 @@ export function voiceoverRequest({ text, voiceId, modelId = 'eleven_multilingual
   };
 }
 
-export function musicRequest({ prompt, lengthMs = 30000 }) {
+export function musicRequest({ prompt, text, lengthMs = 30000 }) {
+  // `text` is the field the agent tool documents for music; `prompt` is what the panel sends. Accept both, so asking
+  // for a bed with either word does not read as "you described nothing".
+  if (!prompt || !String(prompt).trim()) prompt = text;
   if (!prompt || !String(prompt).trim()) throw Object.assign(new Error('Describe the music you want.'), { code: 400 });
   return {
     url: `${API}/v1/music`,
@@ -57,7 +60,9 @@ export function musicRequest({ prompt, lengthMs = 30000 }) {
   };
 }
 
-export function sfxRequest({ prompt, durationSec = null }) {
+export function sfxRequest({ prompt, text, durationSec = null }) {
+  // Same as music: the agent tool documents `text` for a described sound, the panel sends `prompt`.
+  if (!prompt || !String(prompt).trim()) prompt = text;
   if (!prompt || !String(prompt).trim()) throw Object.assign(new Error('Describe the sound you want.'), { code: 400 });
   const body = { text: String(prompt), prompt_influence: 0.3 };
   if (durationSec) { body.duration_seconds = Math.max(0.5, Math.min(22, +durationSec)); }
