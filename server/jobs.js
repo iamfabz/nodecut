@@ -16,6 +16,7 @@ import { DATA_DIR, HUB_DIR, readJson, readVersionList, writeJson, run, TOOLS, no
 import { audioOf } from './live.js';
 import { ENCODERS, LABELS, PROBE_ORDER, encoderEnv } from './encoders.js';
 import { killTree, shellCommand, renderSpawnOptions, findBrowser } from './platform.js';
+import { render as renderEditorV1, isEditorV1Film } from './editor-v1-render.js';
 
 const FILE = path.join(DATA_DIR, 'jobs.json');
 let jobs = readJson(FILE, []);
@@ -78,7 +79,7 @@ export async function create(body) {
   const p = project(body.project); if (!p) throw Object.assign(new Error('Project not found: ' + body.project), { code: 404 });
   const rc = await recipe(p);
   const mode = body.mode || 'partial';
-  if (!['partial', 'full', 'preview', 'command'].includes(mode)) throw Object.assign(new Error('mode: partial | full | preview | command'), { code: 400 });
+  if (!['partial', 'full', 'preview', 'command', 'editor-v1'].includes(mode)) throw Object.assign(new Error('mode: partial | full | preview | command | editor-v1'), { code: 400 });
   const workers = +(body.workers ?? rc.workers ?? 1);
   if (!Number.isInteger(workers) || workers < 1 || workers > (p.studio ? 4 : 8)) throw Object.assign(new Error('Invalid number of render workers.'), { code: 400 });
   const job = { id: 'j' + Date.now().toString(36) + '-' + randomUUID().slice(0, 8), project: p.id, projectName: p.title || p.name, path: p.path, mode, state: 'queued', createdAt: now(), session: body.session || null, notes: body.notes || [], env: { ...rc.env, ...(body.env || {}) }, workers, progress: 0 };
@@ -232,6 +233,27 @@ async function runJob(job) {
     assertActive(job);
     if (code !== 0) throw new Error(`The command ended with code ${code} (log: ${job.log})`);
     if (job.output) await register(p, job, path.resolve(p.path, job.output), vN, job.changedRanges || null);
+    return finish(p, job);
+  }
+
+  // An Editor V1 film has no render.js to run: its page is the film and the HyperFrames tool renders it. Without this
+  // branch the Render button could only say "ask the agent", so a finished edit could be watched but never re-rendered
+  // from the app — which is most of what an editor is for.
+  if (job.mode === 'editor-v1') {
+    setPhase(job, 'render');
+    const r = await renderEditorV1(p.path, {
+      output: job.output || 'out/render.mp4',
+      fps: +job.env.FPS || 30,
+      quality: job.quality || 'high',
+      onLine: (line) => { try { fs.appendFileSync(job.log, line + '\n'); } catch { } },
+    });
+    assertActive(job);
+    if (!r.ok) throw new Error(r.error || 'The Editor V1 render failed.');
+    if (r.warning) try { fs.appendFileSync(job.log, r.warning + '\n'); } catch { }
+    // register the finished film (out/final.mp4) when finish.sh produced one: that is the file NodeCut shows as the
+    // film, with its sound. Otherwise the picture is still real work and is recorded, so it is not thrown away.
+    const made = r.final ? path.resolve(p.path, r.final) : path.resolve(p.path, r.output);
+    await register(p, job, made, vN, null);
     return finish(p, job);
   }
 
@@ -494,6 +516,12 @@ async function renderInfo(p) {
 }
 async function renderOptions0(p) {
   const rc = await recipe(p);
+  // An Editor V1 film renders through its page, not through a render.js, so the UI is told about that path explicitly.
+  // `script` points at the page: that is the thing that is rendered, and the Render button keys on it.
+  if (isEditorV1Film(p.path)) {
+    return { editorV1: true, studio: false, script: 'index.html', partial: false, preview: false,
+      fps: { default: p.render?.fps || 30 }, workers: null, codecs: null, dur: +rc.env.DUR || p.filmDur || null };
+  }
   if (p.studio) return { studio: true, partial: !!rc.chunkSec, preview: false, fps: null, workers: { default: rc.workers, max: 4 }, codecs: ['auto', 'x264', 'nvenc', 'amf'], dur: +rc.env.DUR || null };
   let src = ''; try { src = fs.readFileSync(path.join(p.path, rc.script), 'utf8'); } catch { }
   const env = new Set([...src.matchAll(/process\.env\.([A-Z_]+)/g)].map(m => m[1]));

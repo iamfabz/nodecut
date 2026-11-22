@@ -24,6 +24,9 @@ function category(rel, name) {
   // make.mjs writes part.mp4; preview_silent / video_silent are the picture before the sound is laid on
   if (VIDEO.test(name) && /^(part\d*|seg_.+|(preview|video)_silent)\.(mp4|webm)$/i.test(name)) return 'part';
   if (IMAGE.test(name) && /\\(snaps|qa|sheets?|shots|frames[^\\]*|contact)\\/.test(r)) return 'snap';
+  // Footage the film is built FROM, not a render OF it. A 140 s source clip in assets/ was being read as the film's
+  // length, so the render settings offered a 140 s film for a 68 s one. Assets are inputs; renders live in out/.
+  if (VIDEO.test(name) && /^\\assets\\/.test(r)) return 'source';
   if (VIDEO.test(name)) return 'output';
   if (AUDIO.test(name)) return 'audio';
   return 'other';

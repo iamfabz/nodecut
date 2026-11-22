@@ -32,10 +32,12 @@ export function createRenderButton(p, { notes }) {
   async function chooseRender() {
     const rc = await api(`/api/project/${id}/recipe`).catch(() => ({}));
     const ro = await api(`/api/project/${id}/render-options`).catch(() => ({}));
-    const canFull = !!(p.studio || ro.script || rc.script);
+    const canFull = !!(p.studio || ro.script || rc.script || ro.editorV1);
     if (!canFull) { toast(`This project has no render script (render.js) that NodeCut can run. Ask ${agentName()} to render it.`, true); return; }
+    // An Editor V1 film has no chunked script to re-render, so it only ever renders in full (there is no "partial").
+    const ev1 = !!ro.editorV1;
     const fixed = notes().filter(n => FIXED.includes(n.status)).map(n => n.id);
-    const canPart = !!rc.chunkSec && fixed.length > 0 && (p.studio || p.family === 'A');
+    const canPart = !ev1 && !!rc.chunkSec && fixed.length > 0 && (p.studio || p.family === 'A');
     // settings: only what this project's render understands, defaults from its recipe
     const set = { workers: ro.workers?.default || 2, fps: ro.fps?.default || null, codec: ro.codecDefault || 'auto' };
     const sel = (label, help, values, cur, onch, fmt = v => v) => h('label', { class: 'rset', title: help }, h('span', { class: 'dim' }, label),
@@ -148,7 +150,7 @@ export function createRenderButton(p, { notes }) {
       if (qSel) env.QUALITY = qSel;
       if (set.fps && mode === 'full' && set.fps !== ro.fps?.default) env.FPS = String(set.fps);
       if (ro.codecs && set.codec !== (ro.codecDefault || 'auto')) env[ro.codecEnv || 'CODEC'] = set.codec;
-      job = await api('/api/jobs', { method: 'POST', body: { project: id, mode, notes: mode === 'partial' ? fixed : [], workers: set.workers, env, copyTo: copyTo || undefined } });
+      job = await api('/api/jobs', { method: 'POST', body: { project: id, mode: ev1 ? 'editor-v1' : mode, notes: mode === 'partial' ? fixed : [], workers: set.workers, env, copyTo: copyTo || undefined } });
       try { if (copyTo) { localStorage.setItem('vh-copyto-' + id, copyTo); localStorage.setItem('vh-copyto-last', copyTo); } else localStorage.removeItem('vh-copyto-' + id); } catch { }
       show(); toast(mode === 'partial' ? `Partial render queued: ${job.chunks?.length || ''} chunks` : mode === 'preview' ? 'Preview render queued' : 'Full render queued');
       if (job.ramNote) toast(job.ramNote);
