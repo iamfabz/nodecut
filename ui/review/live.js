@@ -76,7 +76,9 @@ export function createLiveSource(info, { onStatus } = {}) {
     if (!ready || destroyed) return;
     const a = performance.now();
     const at = t;
-    try { win.renderOut(at); displayedTime = at; } catch (e) { status({ state: 'error', error: e.message }); return; }
+    // playthrough: tell the page the clock is running forwards, so its videos play instead of being re-seeked every
+    // frame. Scrubbing still parks each clip on its exact frame. Without this, playback spent its time on seeks.
+    try { win.renderOut(at, { playthrough: !paused }); displayedTime = at; } catch (e) { status({ state: 'error', error: e.message }); return; }
     drawMs = drawMs * 0.8 + (performance.now() - a) * 0.2;
     frames++;
     const cbs = rvfc; rvfc = []; for (const cb of cbs) try { cb(performance.now(), { mediaTime: at }); } catch { }
