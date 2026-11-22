@@ -157,7 +157,27 @@ export function serve(req, res, p, rel) {
       .replace(/(\s(?:src|href)=["'])\/(?!\/)/gi, '$1' + pre);
     res.writeHead(200, head); return res.end(html);
   }
-  res.writeHead(200, head);
+  // Video and audio need Range. A player streams a file, seeks into it, and asks for the pieces it needs; without
+  // Range support it has to download the whole thing before it can show a frame, and a big file means it never gets
+  // there -- the preview showed black where the render (which reads the file locally) had real footage.
+  const size = fs.statSync(file).size;
+  const range = req.headers.range;
+  if (range) {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(range).trim());
+    if (m) {
+      let start = m[1] === '' ? null : Number(m[1]);
+      let end = m[2] === '' ? null : Number(m[2]);
+      if (start === null) {                       // "bytes=-500": the last 500 bytes
+        start = Math.max(0, size - end); end = size - 1;
+      } else if (end === null || end >= size) end = size - 1;
+      if (start >= size || start > end) {
+        res.writeHead(416, { ...head, 'Content-Range': `bytes */${size}` }); return res.end();
+      }
+      res.writeHead(206, { ...head, 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
+      return fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
+    }
+  }
+  res.writeHead(200, { ...head, 'Accept-Ranges': 'bytes', 'Content-Length': size });
   fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
 }
 
