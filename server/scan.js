@@ -51,10 +51,27 @@ async function walk(dir) {
 }
 
 // ---------- how the project renders (read from its render script)
-function renderInfo(dir) {
+export function renderInfo(dir) {
   const info = { family: null, fps: null, chunkFrames: null, chunkSec: null, supportsOnly: false, script: null, w: null, h: null };
   const script = ['render.js', 'render.mjs', 'render.py'].map(f => path.join(dir, f)).find(f => fs.existsSync(f));
   const man = readJson(path.join(dir, 'render', 'manifest.json'));
+  // An Editor V1 film has no render script of its own: build.py writes index.html and the HyperFrames tool renders it.
+  // It is still a film NodeCut can play, so it must not fall through to "other" (which is what made it open onto the
+  // renders list instead of the editor). The page itself is the renderer, so the page is what is read for its recipe.
+  const page = path.join(dir, 'index.html');
+  const v1 = !script && fs.existsSync(page) && fs.readFileSync(page, 'utf8').includes('window.renderOut');
+  if (v1) {
+    let src = ''; try { src = fs.readFileSync(page, 'utf8'); } catch { }
+    const num = re => { const m = src.match(re); return m ? +m[1] : null; };
+    const root = src.match(/#root\{[^}]*width:(\d+)px;height:(\d+)px/);
+    info.family = 'code';             // a page that draws itself: no chunked render, so no partial re-render
+    info.script = 'index.html';
+    info.source = 'index.html';
+    info.w = root ? +root[1] : null;
+    info.h = root ? +root[2] : null;
+    const fpsM = src.match(/\bFPS\s*=\s*(\d+)/);
+    info.fps = fpsM ? +fpsM[1] : 30;
+  }
   if (script) {
     info.script = path.basename(script);
     let src = ''; try { src = fs.readFileSync(script, 'utf8'); } catch { }
