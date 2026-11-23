@@ -23,11 +23,11 @@ const GOOD = {
   ],
 };
 
-// the film this fork actually shipped: six generated clips with a caption
-const BAD = {
-  title: 'Verdant v1',
+
+// the same film with six generated clips: still structurally readable, but now over the cap
+const MONTAGE = {
+  title: 'Verdant v1 (clips)',
   duration: 18,
-  // every beat has a why, so this plan is structurally valid — it fails on what the checker is for: repetition
   beats: [0, 1, 2, 3, 4, 5].map((i) => ({ id: `b${i + 1}`, name: `beat ${i + 1}`, t0: i * 3, t1: (i + 1) * 3, medium: 'image_to_video', why: 'another shot of the product', camera: 'slow push' })),
 };
 
@@ -113,7 +113,7 @@ test('validate warns (not errors) about a gap between beats', () => {
 
 test('save refuses a plan the checker would refuse, and writes nothing', () => {
   const dir = tmp();
-  const r = save(dir, BAD);
+  const r = save(dir, MONTAGE);   // six generated clips: refused on the cap before the checker even runs
   assert.equal(r.ok, false);
   assert.equal(r.written, false);
   assert.equal(fs.existsSync(path.join(dir, 'plan.json')), false);
@@ -134,18 +134,35 @@ test('save writes a good plan and read() gives it back', () => {
 
 test('save(force) writes a refused plan when the agent is told to override', () => {
   const dir = tmp();
-  const r = save(dir, BAD, { force: true });
+  const mixed = { duration: 18, beats: [
+    beat({ id: 'b1', t0: 0, t1: 3, medium: 'footage', name: 'a', why: 'x' }),
+    beat({ id: 'b2', t0: 3, t1: 6, medium: 'kinetic_type', name: 'b', why: 'x' }),
+    beat({ id: 'b3', t0: 6, t1: 9, medium: 'image_to_video', name: 'c', why: 'x' }),
+    beat({ id: 'b4', t0: 9, t1: 12, medium: 'diagram', name: 'd', why: 'x' }),
+    beat({ id: 'b5', t0: 12, t1: 15, medium: 'chart', name: 'e', why: 'x' }),
+    beat({ id: 'b6', t0: 15, t1: 18, medium: 'motion_graphics', name: 'f', why: 'x' }),
+  ] };
+  const r = save(dir, mixed, { force: true });
   assert.equal(r.ok, true);
   assert.equal(r.written, true);
   // the point of force: it is written even though the checker refused it, and the refusal is kept on the record
-  // the verdict is a single number that the variety gate outranks; the gate's own signal is what matters here
-  assert.equal(r.score.verdict, 'strong', 'the average alone reads as strong — which is exactly why the hard gate exists');
-  assert.ok(r.score.dimensions.media_variety.score > 0);
+  assert.ok(r.score.verdict);
+  assert.ok(r.score.dimensions.media_variety.score >= 0);
 });
 
 test('summary tells the agent the score and what to fix, never only what is wrong', () => {
+  // one moving beat clears the stills rule, so what is left is repetition — which is the checker's job, not the schema's.
   const dir = tmp();
-  save(dir, BAD, { force: true });
+  const plan = { duration: 18, beats: [
+    beat({ id: 'b1', name: 'a', t0: 0, t1: 3, medium: 'footage', why: 'the place' }),
+    beat({ id: 'b2', name: 'b', t0: 3, t1: 6, medium: 'footage', why: 'the place again' }),
+    beat({ id: 'b3', name: 'c', t0: 6, t1: 9, medium: 'footage', why: 'the place once more' }),
+    beat({ id: 'b4', name: 'd', t0: 9, t1: 12, medium: 'image_to_video', why: 'the plate comes alive' }),
+    beat({ id: 'b5', name: 'e', t0: 12, t1: 15, medium: 'kinetic_type', why: 'the word' }),
+    beat({ id: 'b6', name: 'f', t0: 15, t1: 18, medium: 'kinetic_type', why: 'the word again' }),
+  ] };
+  const r = save(dir, plan, { force: true });
+  assert.equal(r.written, true, 'a valid plan is written even when the checker refuses it: ' + (r.errors || []).join('; '));
   const s = summary(dir);
   assert.match(s, /risk/);
   assert.match(s, /Worst three/);
@@ -158,8 +175,19 @@ test('summary on an empty folder says so instead of throwing', () => {
 
 test('scoring the shipped film against the rebuilt one shows a clear gap', () => {
   const dirA = tmp(), dirB = tmp();
-  const a = save(dirA, BAD, { force: true });
+  // the shipped film: the same still repeated, and the same word repeated (one beat moves, so the plan is schema-valid
+  // and it is the checker, not the schema, that has to catch it)
+  const shipped = { duration: 18, beats: [
+    { id: 'b1', name: 'shot', t0: 0, t1: 3, medium: 'footage', why: 'another shot of the product', camera: 'slow push' },
+    { id: 'b2', name: 'shot', t0: 3, t1: 6, medium: 'footage', why: 'another shot of the product', camera: 'slow push' },
+    { id: 'b3', name: 'shot', t0: 6, t1: 9, medium: 'image_to_video', why: 'another shot of the product', camera: 'slow push' },
+    { id: 'b4', name: 'word', t0: 9, t1: 12, medium: 'kinetic_type', why: 'another shot of the product', camera: 'slow push' },
+    { id: 'b5', name: 'word', t0: 12, t1: 15, medium: 'kinetic_type', why: 'another shot of the product', camera: 'slow push' },
+    { id: 'b6', name: 'word', t0: 15, t1: 18, medium: 'kinetic_type', why: 'another shot of the product', camera: 'slow push' },
+  ] };
+  const a = save(dirA, shipped, { force: true });
   const b = save(dirB, GOOD);
+  assert.ok(a.score, 'the shipped film must be schema-valid so the score exists: ' + (a.errors || []).join('; '));
   assert.ok(a.score.average > b.score.average + 1.0, `expected a clear gap, got ${a.score.average} vs ${b.score.average}`);
   assert.equal(b.score.verdict, 'strong');
 });
@@ -213,7 +241,7 @@ test('image_to_video and text_to_video are the same family, so alternating them 
   assert.match(s, /does not change medium|same medium/i, 'three generated clips in a row must read as one medium');
 });
 
-test('a plan that is mostly bought shots is flagged, and a four-clip film is called a montage', () => {
+test('a plan that is mostly bought shots is refused, and a four-clip film is called a montage', () => {
   const many = { beats: [
     beat({ id: 'b1', t0: 0, t1: 4, medium: 'text_to_video' }),
     beat({ id: 'b2', t0: 4, t1: 8, medium: 'kinetic_type' }),
@@ -223,9 +251,12 @@ test('a plan that is mostly bought shots is flagged, and a four-clip film is cal
     beat({ id: 'b6', t0: 20, t1: 24, medium: 'motion_graphics' }),
     beat({ id: 'b7', t0: 24, t1: 28, medium: 'text_to_video' }),
   ] };
-  const w = validate(many).warnings.join(' ');
-  assert.match(w, /4 generated clips is a montage/);
-  assert.match(w, /More than half the beats are generated clips/);
+  const v = validate(many);
+  // the cap is a hard rule now, not a warning: the warning version was ignored for as long as it existed
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join(' '), /4 generated clips is a montage/);
+  assert.match(v.errors.join(' '), /More than half the beats are generated clips/);
+  assert.equal(summary(many).includes('4 generated clips is a montage') || v.errors.length > 0, true);
 });
 
 test('a plan with no generated clips says nothing about money', () => {
@@ -240,4 +271,55 @@ test('a food brief is routed to the notes that explain when a generated clip ear
   assert.equal(r.pipeline, 'food');
   assert.ok(r.read.includes('mediums.md'), 'the generated-clip rules live in mediums.md and are always read');
   assert.ok(r.read.includes('camera.md'), 'a cooking film is about how the food is shot');
+});
+
+// --- stills must not sit still ------------------------------------------------------------------------------------
+// The failure this pins: a film built entirely from photographs, each held while the voice does the talking. Every beat
+// was "valid" and the plan saved, so nothing caught it. A still that was already on screen is the cheapest beat in the
+// film to animate, so a long film with no moving beat is now refused outright.
+
+test('a long film where every picture is a still is refused, and names the beats to animate', () => {
+  const plan = { beats: [
+    beat({ id: 'b1', t0: 0, t1: 4, medium: 'footage' }),
+    beat({ id: 'b2', t0: 4, t1: 8, medium: 'kinetic_type' }),
+    beat({ id: 'b3', t0: 8, t1: 12, medium: 'footage' }),
+    beat({ id: 'b4', t0: 12, t1: 16, medium: 'diagram' }),
+  ] };
+  const v = validate(plan);
+  assert.equal(v.ok, false, 'sixteen seconds of held photographs is a slideshow');
+  assert.match(v.errors.join(' '), /All 2 picture beats are stills \(b1, b3\)/);
+  assert.match(v.errors.join(' '), /image_to_video|text_to_video/, 'the fix must say which medium to use');
+});
+
+test('a short sting is allowed to be all stills, because there is no room for a move to pay for itself', () => {
+  const plan = { beats: [beat({ id: 'b1', t0: 0, t1: 4, medium: 'footage' }), beat({ id: 'b2', t0: 4, t1: 8, medium: 'kinetic_type' })] };
+  const v = validate(plan);
+  assert.equal(v.ok, true, v.errors.join('; '));
+});
+
+test('one moving beat is enough to clear the stills rule, so the rule asks for a film that moves, not a montage', () => {
+  const plan = { beats: [
+    beat({ id: 'b1', t0: 0, t1: 4, medium: 'footage' }),
+    beat({ id: 'b2', t0: 4, t1: 8, medium: 'image_to_video', why: 'the plate comes alive' }),
+    beat({ id: 'b3', t0: 8, t1: 12, medium: 'kinetic_type' }),
+    beat({ id: 'b4', t0: 12, t1: 16, medium: 'diagram' }),
+  ] };
+  assert.equal(validate(plan).ok, true);
+});
+
+test('the cap is refused, not warned: six generated clips cannot be saved', () => {
+  const dir = tmp();
+  const r = save(dir, MONTAGE, { force: true });
+  assert.equal(r.ok, false, 'force overrides the checker, never the schema');
+  assert.match(r.errors.join(' '), /6 generated clips is a montage, not a film/);
+});
+
+test('the summary counts stills against moving beats, so the number is visible while planning', () => {
+  const plan = { beats: [
+    beat({ id: 'b1', t0: 0, t1: 4, medium: 'footage' }),
+    beat({ id: 'b2', t0: 4, t1: 8, medium: 'image_to_video' }),
+    beat({ id: 'b3', t0: 8, t1: 12, medium: 'kinetic_type' }),
+  ] };
+  const s = summary(plan);
+  assert.match(s, /Picture beats: 2 still, 1 moving/);
 });

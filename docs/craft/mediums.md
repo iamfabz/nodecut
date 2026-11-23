@@ -10,8 +10,8 @@ every beat becomes the same thing: a clip with a caption on it. That is what mak
 | medium | best when | watch out |
 |---|---|---|
 | `footage` | the subject is real and the camera is the point | needs real motion; a still shot held for 3 s is a photograph |
-| `image_to_video` | you have a still and want one move on it | generated clips come from a still you already made; use it when the picture is right but dead |
-| `text_to_video` | the beat needs a thing that cannot be drawn or typed | costs money per clip. Not a background. Only for a beat whose whole point is the thing moving |
+| `image_to_video` | **the default move for any still you made. A photograph that has been on screen for a moment should start breathing** | you cannot make it move without a still first, so a beat with no plate is `text_to_video` |
+| `text_to_video` | the beat needs a thing that cannot be drawn or typed, and you have no still yet | costs money per clip. Not a background. Only for a beat whose whole point is the thing moving |
 | `kinetic_type` | **the words are the idea** | only if the line is short enough to read once |
 | `motion_graphics` | you need to show how something is built, assembled or measured | hand-drawn, so it must be designed rather than defaulted |
 | `diagram` | the subject is a process, a structure or a set of parts | needs labels or it is decoration |
@@ -31,24 +31,34 @@ Three beats in a row on the **same family** is refused. The families the checker
 So `footage → text_to_video → image_to_video` is still one family three times over. It will be refused, and it should be.
 Generated clips do not count as variety: alternating two machine-made clips is the machine version of the caption film.
 
-## Choosing a generated clip, and when not to
+## Choosing a generated clip
 
-Most beats do not need one. A beat earns `text_to_video` because **nothing drawn could show it**: the sizzle in the pan, the
-steam off the bowl, water going over the edge, a hand lifting the lid. If the beat would work as a diagram, a chart or a
-line of type, it is not a clip beat — and a clip on it makes the film look bought rather than made.
+The row of stills is what makes a film look like a slideshow: the right picture, held, while the voice does the talking.
+So the default assumption is now the other way round — **a still you made is something you can bring to life.** A beat
+that has a plate behind it is expected to move. A held frame has to justify being held.
+
+A still earns `image_to_video` when:
+
+- it is **already in the film** and only exists as a photograph — the object, the place, the face, the wide
+- it is **the best frame you have** of a subject you cannot film, and the beat needs more than a pan
+- the **motion is the turn**: something cooling, opening, filling, drifting, arriving — the thing the caption was
+  describing and could not show
 
 Ask, in this order:
 
-1. **Could I draw this?** → yes, then do not generate it. Draw it.
-2. **Is the point a word or a number?** → then it is `kinetic_type` or `chart`, and a clip behind it is a caption film.
-3. **Is there a real thing moving that carries the idea?** → `text_to_video`, and be specific enough that the shot could be
-   filmed: what it is, what it is doing, where the camera is, how light falls.
-4. **Do I already have the still?** → `image_to_video`, and describe the motion only: the camera move and what changes.
+1. **Is the point a word or a number?** → `kinetic_type` or `chart`. A clip behind it is a caption film.
+2. **Could I draw this more clearly than I could film it?** → `diagram` or `motion_graphics`. Draw it.
+3. **Do I already have the still?** → `image_to_video`. Describe the **motion only**: which way the camera pushes, what
+   changes, what the light does. Do not re-describe the picture — the plate already is the picture.
+4. **Is there a real thing moving that carries the idea, and I have no still?** → `text_to_video`, specific enough that the
+   shot could be filmed. Then keep the output as a plate for the next beat.
 
-Two clips is usually the most a fifteen- to thirty-second film needs. Three is the ceiling before it stops being a
-designed film and becomes a stock-footage montage.
+**How many.** One to three is the normal range for a fifteen- to thirty-second film, and it is measured against *how many
+still beats there are*, not against the whole plan. A film with five still beats and no moving ones is the failure this
+section exists to prevent; a film with five moving stills that each carry a different idea is the target. Four or more
+generated clips is a montage, and the checker says so.
 
-**Cost:** each clip is about two cents and about five seconds. The planner prices the whole plan before anything is
+**Cost.** Each clip is about two cents and about five seconds. The planner prices the whole plan before anything is
 generated and says so in the summary. If the plan is refused on cost, the fix is fewer clip beats, not cheaper ones.
 
 ## Choosing
@@ -59,9 +69,10 @@ Ask these in order:
    that a design.
 2. **Is the point a number or a comparison?** → `chart`. Two bars prove a claim in half a second; a portrait never does.
 3. **Is the point how something works, or what it is made of?** → `diagram` or `motion_graphics`.
-4. **Is the point something real moving — heat, steam, liquid, a hand, a place?** → `text_to_video` if you would have to
-   film it, `image_to_video` if you already have the still. See *Choosing a generated clip* above.
-5. **Is the point the object or the place itself?** → `footage` if you have it, `text_to_video` if you do not.
+4. **Is the point something real moving — heat, steam, liquid, a hand, a place?** → `image_to_video` if you already have
+   the still, `text_to_video` if you would have to film it. See *Choosing a generated clip* above.
+5. **Is the point the object or the place itself?** → `footage` if you have it, `text_to_video` if you do not, but if you
+   have a still of it, `image_to_video` is cheaper and closer to what you drew.
 6. **Is the point the build of the brand itself?** → `motion_graphics`. A lockup assembling around the product *is* the
    product demo.
 

@@ -83,6 +83,18 @@ export function route(brief) {
 
 const ID_RE = /^b\d+$/;
 
+// The beats that are a photograph: a plate, a still, a frame that does not move on its own.
+const STILL_MEDIA = ['footage', 'image_to_video'];
+
+// Three generated clips is the design ceiling; a fourth turns a film into a montage. Enforced as an error, because the
+// warning version of this rule was ignored for as long as it existed.
+const MAX_GENERATED = 3;
+
+// Below this length a film is a sting and is allowed to be all stills: there is no room for a move to pay for itself.
+const MOVING_FILM_SECONDS = 12;
+
+const HUB_PLAN_HINT = 'Re-run hub_plan with that beat as image_to_video (if you already have the still) or text_to_video.';
+
 // validate(plan) -> { ok, errors, warnings }. A plan is beats with a medium and a reason, spanning the film.
 export function validate(plan) {
   const errors = [];
@@ -113,15 +125,27 @@ export function validate(plan) {
     }
   }
 
-  // ---- generated video: priced, and kept to a minority of the film -------------------------------------------
+  // ---- generated video: priced, capped, and measured against the stills ------------------------------------
   // The clips are the only part of a plan that spends money, so a plan is never saved with a spend the person has not
-  // been shown. These are warnings, not errors: refusing a plan for using the feature would teach the agent to hide it.
+  // been shown. The price is a warning, but the two counts below are hard rules: a film of bought shots and a film of
+  // dead photographs are both the failure this stage exists to catch, and a warning is easy to ignore.
   const gen = beats.filter((b) => GENERATED_MEDIA.includes(b.medium));
+  const stills = beats.filter((b) => STILL_MEDIA.includes(b.medium));
   if (gen.length) {
     const priced = pricePlan(plan);
     warnings.push(`Spends about $${priced.total.toFixed(2)} on ${priced.clips} generated clip${priced.clips === 1 ? '' : 's'} (${priced.beats.map((b) => b.id).join(', ')}). Generation runs only if Settings > Generation is on.`);
-    if (gen.length > 3) warnings.push(`${gen.length} generated clips is a montage, not a film: pick the two or three beats where the motion is the point and draw the rest.`);
-    if (gen.length > beats.length / 2) warnings.push(`More than half the beats are generated clips (${gen.length} of ${beats.length}). A film made mostly of bought shots looks bought: the drawn and typed beats are what make it yours.`);
+    if (gen.length > MAX_GENERATED) {
+      errors.push(`${gen.length} generated clips is a montage, not a film. The cap is ${MAX_GENERATED}: keep the beats where the motion is the point and draw or type the rest.`);
+    }
+    if (gen.length > beats.length / 2) {
+      errors.push(`More than half the beats are generated clips (${gen.length} of ${beats.length}). A film made mostly of bought shots looks bought: the drawn and typed beats are what make it yours.`);
+    }
+  }
+  // A plan that is ALL stills is a slideshow. If there are still beats and nothing moving, say which ones should move.
+  // This is a hard rule only when the film is long enough to afford a moving beat; a three-beat sting is allowed to be
+  // still, because there is no room in it for a move to pay for itself.
+  if (gen.length === 0 && stills.length && (beats.at(-1)?.t1 ?? 0) >= MOVING_FILM_SECONDS) {
+    errors.push(`All ${stills.length} picture beats are stills (${stills.map((b) => b.id).join(', ')}). Pick one to ${MAX_GENERATED} and make them move: a still that was already on screen is the cheapest beat in the film to animate. ${HUB_PLAN_HINT}`);
   }
   return { ok: errors.length === 0, errors, warnings };
 }
@@ -239,6 +263,10 @@ export function summary(planOrFolder) {
   }
   const v = checkVariation(plan);
   if (!v.ok) lines.push(`Variation: ${v.issues.slice(0, 4).map((i) => i.detail).join('; ')}`);
+  // Counts, because "how many stills" is the question a planner gets wrong without noticing.
+  const gen = plan.beats.filter((b) => GENERATED_MEDIA.includes(b.medium)).length;
+  const still = plan.beats.filter((b) => STILL_MEDIA.includes(b.medium)).length;
+  if (still) lines.push(`Picture beats: ${still} still, ${gen} moving.${gen === 0 ? ' A still that never moves is a slideshow.' : ''}`);
   // The price sits with the verdict, because it is part of deciding whether to build the plan, not a footnote to it.
   const price = priceLine(pricePlan(plan));
   if (price) lines.push(price);
