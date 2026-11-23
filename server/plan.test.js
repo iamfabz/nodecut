@@ -314,6 +314,21 @@ test('the cap is refused, not warned: six generated clips cannot be saved', () =
   assert.match(r.errors.join(' '), /6 generated clips is a montage, not a film/);
 });
 
+test('an image_to_video beat warns that its plate does not exist yet, so the still is not discovered at build time', () => {
+  const plan = { duration: 12, beats: [
+    beat({ id: 'b1', t0: 0, t1: 3, medium: 'footage' }),
+    beat({ id: 'b2', t0: 3, t1: 6, medium: 'image_to_video', why: 'the plate comes alive' }),
+    beat({ id: 'b3', t0: 6, t1: 9, medium: 'kinetic_type' }),
+    beat({ id: 'b4', t0: 9, t1: 12, medium: 'diagram' }),
+  ] };
+  const v = validate(plan);
+  assert.match(v.warnings.join(' '), /no still is recorded yet/);
+  assert.match(v.warnings.join(' '), /hub_generate_still/);
+
+  const withPlate = { ...plan, plates: [{ id: 'still_0001' }] };
+  assert.doesNotMatch(validate(withPlate).warnings.join(' '), /no still is recorded yet/);
+});
+
 test('the summary counts stills against moving beats, so the number is visible while planning', () => {
   const plan = { beats: [
     beat({ id: 'b1', t0: 0, t1: 4, medium: 'footage' }),

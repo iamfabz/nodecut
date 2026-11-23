@@ -61,6 +61,33 @@ generated clips is a montage, and the checker says so.
 **Cost.** Each clip is about two cents and about five seconds. The planner prices the whole plan before anything is
 generated and says so in the summary. If the plan is refused on cost, the fix is fewer clip beats, not cheaper ones.
 
+## The chain: a moving beat is a still you brought to life
+
+An `image_to_video` beat is not one step. It is three, and skipping the middle one is why moving beats come out wrong:
+
+```
+1. still      hub_generate_still          the plate: the picture, posed the way you want it
+2. motion     hub_generate_clip {plateId}  animate that plate: camera move, what changes
+3. draw       GEN.get(id).drawFit(g, s)   the clip's own second is (film time - where the beat starts)
+```
+
+**Describe the plate fully and the motion narrowly.** The still prompt says what the picture is — subject, framing,
+light, mood. The clip prompt says only what *moves*: "slow push in, steam rising faster, the light cools". Saying what
+the picture already shows fights the model and it drifts away from the plate you chose.
+
+**Never chain two `text_to_video` clips.** Two clips made from text share nothing: different subject, different light,
+different lens. Put them next to each other and it reads as a montage, which the cap refuses and which looks bought. If
+a beat needs two moving shots, make one plate and animate it twice with different motion — or animate a plate and let a
+drawn beat separate them.
+
+**A beat with no clip yet still has to draw.** Write the fallback alongside the clip, so the film is watchable while the
+clip is being made and a failed bake is a designed panel rather than a black frame. `templates/new-film/film.js` shows
+the pattern.
+
+**Planning without a still is a promise, not a plate.** `hub_plan` can accept `image_to_video` before any still exists.
+That is fine as a plan, but the still is then the first thing to make — before writing that beat in `film.js`, because a
+beat written against a clip that does not exist is a hole in the render.
+
 ## Choosing
 
 Ask these in order:

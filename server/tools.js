@@ -157,11 +157,11 @@ export const TOOLS = {
     },
   },
   hub_generate_clip: {
-    description: 'Make a video clip and bake it into atlases the film can draw. Give plateId to animate an existing still (image-to-video); leave it out and describe the whole shot to generate it from text alone (text-to-video). Costs money per second and the price is shown before it submits. The job runs for minutes, so this returns immediately with an asset id; the clip lands in gen/ when it finishes.',
+    description: 'Make a video clip and bake it into atlases the film can draw. Give plateId to animate an existing still (image-to-video); leave it out and describe the whole shot to generate it from text alone (text-to-video). Costs money per second and the price is shown before it submits. image-to-video is the normal way to make a moving beat: generate the still first with hub_generate_still, then animate it, because you can see and pose the picture before spending money on motion. text-to-video has no picture to match, so a second text_to_video clip will not continue the first one — for a multi-shot idea, animate plates instead. The job runs for minutes, so this returns immediately with an asset id; the clip lands in gen/ when it finishes.',
     schema: {
       project: z.string().optional().describe('Project folder, name or id. Default: the working folder.'),
-      plateId: z.string().optional().describe('Optional. The still to animate (image-to-video). Leave it out for text-to-video, where the prompt describes the whole shot.'),
-      prompt: z.string().describe('The shot. For image-to-video: the motion, camera and what happens. For text-to-video: the whole shot, since there is no still to look at.'),
+      plateId: z.string().optional().describe('The still to animate (image-to-video). Leave it out for text-to-video. Use the id hub_generate_still returned.'),
+      prompt: z.string().describe('The motion, for image-to-video: which way the camera pushes, what changes, what the light does. Do NOT re-describe the picture — the plate already is the picture, and describing it again fights the model. For text-to-video: the whole shot, since there is no still to look at — subject, action, camera, light, mood.'),
       duration: z.number().optional().describe('Seconds (default from Settings, usually 5).'),
       resolution: z.string().optional().describe('480p (default, cheapest), 768p, 1080p, 2K. Price scales with it.'),
       aspect: z.string().optional().describe('16:9 for a landscape film, 9:16 for vertical.'),
@@ -180,6 +180,7 @@ export const TOOLS = {
           `Made a clip from text for "${p.title}": asset ${t.id}, 5s at ${t.resolution}, $${(+t.cost || 0).toFixed(4)}.`,
           `It is on disk now (${t.file}) and drawn like any other clip — GEN.get('${t.id}') in film.js.`,
           'It is a five-second shot; if the beat is longer, split it across more than one clip rather than stretching one.',
+          `For the next beat of the same idea, animate a plate instead: hub_generate_still to make the still (or reuse this clip's last frame), then hub_generate_clip with its id. Two text_to_video clips share nothing — different subject, different light — and that reads as a montage, not a sequence.`,
         ].join('\n');
       }
       const r = await call('POST', `/api/gen/${p.id}/clip`, { plateId: a.plateId, prompt: a.prompt, duration: a.duration, resolution: a.resolution, aspect: a.aspect, model: a.model }, 180e3);

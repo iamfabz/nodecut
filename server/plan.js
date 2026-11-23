@@ -147,6 +147,13 @@ export function validate(plan) {
   if (gen.length === 0 && stills.length && (beats.at(-1)?.t1 ?? 0) >= MOVING_FILM_SECONDS) {
     errors.push(`All ${stills.length} picture beats are stills (${stills.map((b) => b.id).join(', ')}). Pick one to ${MAX_GENERATED} and make them move: a still that was already on screen is the cheapest beat in the film to animate. ${HUB_PLAN_HINT}`);
   }
+  // An image_to_video beat needs a plate to animate, and a plate is a still the film made first. The plan can be written
+  // before that still exists — that is fine — but the warning has to say so, because the agent otherwise plans a moving
+  // beat and discovers at build time that there is nothing to animate.
+  const i2v = gen.filter((b) => b.medium === 'image_to_video');
+  if (i2v.length && !plan.plates?.length) {
+    warnings.push(`${i2v.length} image_to_video beat${i2v.length === 1 ? '' : 's'} (${i2v.map((b) => b.id).join(', ')}) animate a still, and no still is recorded yet. Make the plate with hub_generate_still first, then animate it — a beat written against a clip that does not exist is a hole in the render.`);
+  }
   return { ok: errors.length === 0, errors, warnings };
 }
 

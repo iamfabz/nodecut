@@ -1,9 +1,9 @@
 ﻿// Writes a placeholder audio/mix.wav (a quiet chord bed, synthesized in code) so the film plays with sound in NodeCut's
 // live preview from the first minute. Replace it with your real mix (voice-over + music + effects) as audio/mix.wav.
-//   node make-audio.js            (DUR env = length in seconds, default 10)
+//   node make-audio.js            (DUR env = length in seconds, default 15)
 'use strict';
 const fs = require('fs'), path = require('path');
-const SR = 22050, DUR = +(process.env.DUR || 10), N = Math.round(SR * DUR);
+const SR = 22050, DUR = +(process.env.DUR || 15), N = Math.round(SR * DUR);
 const data = Buffer.alloc(N * 4);
 const notes = [57, 60, 64].map(m => 440 * Math.pow(2, (m - 69) / 12));
 for (let i = 0; i < N; i++) {

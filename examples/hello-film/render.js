@@ -53,7 +53,7 @@ function browserPath() {
 const FFMPEG = process.env.FFMPEG || 'ffmpeg';
 
 const PREVIEW = process.env.PREVIEW === '1';
-const FPS = +(process.env.FPS || 30), DUR = +(process.env.DUR || 10), CH = 60, VW = 1920, VH = 1080;
+const FPS = +(process.env.FPS || 30), DUR = +(process.env.DUR || 15), CH = 60, VW = 1920, VH = 1080;
 const PAGE = process.env.PAGE || 'index.html';
 const fps = PREVIEW ? Math.min(FPS, 30) : FPS, scale = PREVIEW ? 0.5 : 1, TOTAL = Math.round(DUR * fps);
 const OUT = PREVIEW ? path.resolve('render/preview') : path.resolve('render/chunks');
